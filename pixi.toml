@@ -1,0 +1,10 @@
+[workspace]
+authors = ["Ivan Aphanasyev <nekaktotak2@gmail.com>"]
+channels = ["conda-forge"]
+name = "simops-sandbox"
+platforms = ["osx-arm64"]
+version = "0.1.0"
+
+[tasks]
+
+[dependencies]
