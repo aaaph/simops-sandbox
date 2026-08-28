@@ -1,4 +1,4 @@
-# ros2 run ros_gz_bridge parameter_bridge --ros-args -p config_file:=ros_gz_bridge.yaml
+# ros2 run ros_gz_bridge parameter_bridge --ros-args -p config_file:=config/ros_gz_bridge.yaml
 - ros_topic_name: "/clock"
   gz_topic_name: "/clock"
   ros_type_name: "rosgraph_msgs/msg/Clock"

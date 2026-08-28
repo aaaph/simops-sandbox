@@ -10,12 +10,12 @@ version = "0.1.0"
 
 [activation.env]
 RMW_IMPLEMENTATION = "rmw_zenoh_cpp"
-GZ_SIM_RESOURCE_PATH = "$PIXI_PROJECT_ROOT/models"
+GZ_SIM_RESOURCE_PATH = "$PIXI_PROJECT_ROOT/models:$PIXI_PROJECT_ROOT/worlds"
 
 [tasks]
-world = "python make_world.py --seed 42 --size 20 16 --obstacles 14 --clearance 2.6 -o room.sdf"
+world = "python generate_temp_room_world.py --seed 42 --size 20 16 --obstacles 14 --clearance 2.6 -o worlds/temp_room.sdf"
 zenoh = "ros2 run rmw_zenoh_cpp rmw_zenohd"
-bringup = "ros2 launch bringup.launch.py"
+bringup = { cmd = "ros2 launch launch/bringup.launch.py", depends-on = ["world"] }
 
 [dependencies]
 ros-lyrical-rmw-zenoh-cpp = ">=0.10.4,<0.11"

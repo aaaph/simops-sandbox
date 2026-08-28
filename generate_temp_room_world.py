@@ -24,7 +24,7 @@ p.add_argument(
 p.add_argument("--spawn-clear", type=float)  # defaults to --clearance
 p.add_argument("--robot", default="vehicle_blue")  # "" to leave the room empty
 p.add_argument("--cell", type=float, default=0.05)  # flood-fill resolution
-p.add_argument("-o", "--out", default="room.sdf")
+p.add_argument("-o", "--out", default="worlds/temp_room.sdf")
 a = p.parse_args()
 
 WALL_H, WALL_T = 2.5, 0.15
