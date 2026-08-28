@@ -1,10 +1,24 @@
 [workspace]
 authors = ["Ivan Aphanasyev <nekaktotak2@gmail.com>"]
-channels = ["conda-forge"]
+channels = [
+    "https://prefix.dev/conda-forge",
+    "https://prefix.dev/robostack-lyrical",
+]
 name = "simops-sandbox"
 platforms = ["osx-arm64"]
 version = "0.1.0"
 
+[activation.env]
+RMW_IMPLEMENTATION = "rmw_zenoh_cpp"
+GZ_SIM_RESOURCE_PATH = "$PIXI_PROJECT_ROOT/models"
+
 [tasks]
+world = "python make_world.py --seed 42 --size 20 16 --obstacles 14 --clearance 2.6 -o room.sdf"
+zenoh = "ros2 run rmw_zenoh_cpp rmw_zenohd"
+bringup = "ros2 launch bringup.launch.py"
 
 [dependencies]
+ros-lyrical-rmw-zenoh-cpp = ">=0.10.4,<0.11"
+ros-lyrical-desktop = ">=0.13.0,<0.14"
+gz-sim = ">=10.4.0,<11"
+ros-lyrical-ros-gz = ">=3.0.9,<4"
