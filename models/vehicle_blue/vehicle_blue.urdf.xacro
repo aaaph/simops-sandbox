@@ -1,0 +1,129 @@
+<?xml version="1.0"?>
+<robot name="vehicle_blue" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:property name="chassis_x" value="2.0"/>
+  <xacro:property name="chassis_y" value="1.0"/>
+  <xacro:property name="chassis_z" value="0.5"/>
+  <xacro:property name="wheel_r"   value="0.4"/>
+  <xacro:property name="wheel_w"   value="0.2"/>
+  <xacro:property name="wheel_sep" value="1.2"/>
+  <xacro:property name="caster_r"  value="0.2"/>
+
+  <material name="blue"><color rgba="0 0 1 1"/></material>
+  <material name="red"><color rgba="1 0 0 1"/></material>
+  <material name="white"><color rgba="1 1 1 1"/></material>
+
+  <!-- base_link == the SDF 'chassis' link; the 0.5 0 0.4 model offset is gone,
+       placement is now the spawn pose (z must be >= wheel radius) -->
+  <link name="base_link">
+    <inertial>
+      <mass value="1.14395"/>
+      <inertia ixx="0.095329" ixy="0" ixz="0" iyy="0.381317" iyz="0" izz="0.476646"/>
+    </inertial>
+    <visual>
+      <geometry><box size="${chassis_x} ${chassis_y} ${chassis_z}"/></geometry>
+      <material name="blue"/>
+    </visual>
+    <collision>
+      <geometry><box size="${chassis_x} ${chassis_y} ${chassis_z}"/></geometry>
+    </collision>
+  </link>
+
+  <xacro:macro name="wheel" params="side reflect">
+    <link name="${side}_wheel">
+      <inertial>
+        <mass value="1"/>
+        <inertia ixx="0.043333" ixy="0" ixz="0" iyy="0.043333" iyz="0" izz="0.08"/>
+      </inertial>
+      <visual>
+        <geometry><cylinder radius="${wheel_r}" length="${wheel_w}"/></geometry>
+        <material name="red"/>
+      </visual>
+      <collision>
+        <geometry><cylinder radius="${wheel_r}" length="${wheel_w}"/></geometry>
+      </collision>
+    </link>
+    <!-- rpy rotates the cylinder onto the Y axis, so the spin axis is local Z -->
+    <joint name="${side}_wheel_joint" type="continuous">
+      <parent link="base_link"/>
+      <child link="${side}_wheel"/>
+      <origin xyz="-0.5 ${reflect * wheel_sep / 2} 0" rpy="-1.5707 0 0"/>
+      <axis xyz="0 0 1"/>
+    </joint>
+  </xacro:macro>
+
+  <xacro:wheel side="left"  reflect="1"/>
+  <xacro:wheel side="right" reflect="-1"/>
+
+  <!-- SDF had a ball joint here; URDF has no such type, so the caster is welded
+       on and slides instead of rolling. Friction is zeroed in <gazebo> below. -->
+  <link name="caster">
+    <inertial>
+      <mass value="1"/>
+      <inertia ixx="0.016" ixy="0" ixz="0" iyy="0.016" iyz="0" izz="0.016"/>
+    </inertial>
+    <visual>
+      <geometry><sphere radius="${caster_r}"/></geometry>
+      <material name="white"/>
+    </visual>
+    <collision>
+      <geometry><sphere radius="${caster_r}"/></geometry>
+    </collision>
+  </link>
+  <joint name="caster_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="caster"/>
+    <origin xyz="0.8 0 -0.2" rpy="0 0 0"/>
+  </joint>
+
+  <!-- was a bare <pose> on the sensor; now a real link, so it shows up in TF -->
+  <link name="lidar_link"/>
+  <joint name="lidar_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="lidar_link"/>
+    <origin xyz="0 0 0.3" rpy="0 0 0"/>
+  </joint>
+
+  <gazebo reference="caster">
+    <mu1>0.0</mu1>
+    <mu2>0.0</mu2>
+  </gazebo>
+
+  <gazebo reference="lidar_link">
+    <sensor name="lidar" type="gpu_lidar">
+      <topic>scan</topic>
+      <gz_frame_id>base_link</gz_frame_id>
+      <update_rate>10</update_rate>
+      <always_on>1</always_on>
+      <visualize>true</visualize>
+      <lidar>
+        <scan>
+          <horizontal>
+            <samples>640</samples>
+            <resolution>1</resolution>
+            <min_angle>-3.14159</min_angle>
+            <max_angle>3.14159</max_angle>
+          </horizontal>
+        </scan>
+        <range><min>0.3</min><max>12.0</max><resolution>0.01</resolution></range>
+        <noise><type>gaussian</type><mean>0.0</mean><stddev>0.01</stddev></noise>
+      </lidar>
+    </sensor>
+  </gazebo>
+
+  <gazebo>
+    <plugin filename="gz-sim-diff-drive-system" name="gz::sim::systems::DiffDrive">
+      <left_joint>left_wheel_joint</left_joint>
+      <right_joint>right_wheel_joint</right_joint>
+      <wheel_separation>${wheel_sep}</wheel_separation>
+      <wheel_radius>${wheel_r}</wheel_radius>
+      <odom_publish_frequency>30</odom_publish_frequency>
+      <topic>cmd_vel</topic>
+      <odom_topic>odom</odom_topic>
+      <tf_topic>tf</tf_topic>
+      <frame_id>odom</frame_id>
+      <child_frame_id>base_link</child_frame_id>
+    </plugin>
+  </gazebo>
+
+</robot>

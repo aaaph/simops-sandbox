@@ -22,7 +22,7 @@ p.add_argument(
     "--clearance", type=float, default=0.8
 )  # narrowest corridor the robot must fit
 p.add_argument("--spawn-clear", type=float)  # defaults to --clearance
-p.add_argument("--robot", default="vehicle_blue")  # "" to leave the room empty
+p.add_argument("--robot", default="")  # "" to leave the room empty
 p.add_argument("--cell", type=float, default=0.05)  # flood-fill resolution
 p.add_argument("-o", "--out", default="worlds/temp_room.sdf")
 a = p.parse_args()
@@ -175,6 +175,48 @@ with open(a.out, "w") as f:
     <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>
     <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
       <render_engine>ogre2</render_engine>
+    </plugin>
+
+    <gui fullscreen="0">
+      <plugin filename="KeyPublisher" name="Key Publisher"/>
+    </gui>
+
+    <!-- arrow keys -> /cmd_vel -->
+    <plugin filename="gz-sim-triggered-publisher-system"
+            name="gz::sim::systems::TriggeredPublisher">
+      <input type="gz.msgs.Int32" topic="/keyboard/keypress">
+        <match field="data">16777235</match>
+      </input>
+      <output type="gz.msgs.Twist" topic="/cmd_vel">
+        linear: {{x: 0.5}}, angular: {{z: 0.0}}
+      </output>
+    </plugin>
+    <plugin filename="gz-sim-triggered-publisher-system"
+            name="gz::sim::systems::TriggeredPublisher">
+      <input type="gz.msgs.Int32" topic="/keyboard/keypress">
+        <match field="data">16777237</match>
+      </input>
+      <output type="gz.msgs.Twist" topic="/cmd_vel">
+        linear: {{x: -0.5}}, angular: {{z: 0.0}}
+      </output>
+    </plugin>
+    <plugin filename="gz-sim-triggered-publisher-system"
+            name="gz::sim::systems::TriggeredPublisher">
+      <input type="gz.msgs.Int32" topic="/keyboard/keypress">
+        <match field="data">16777234</match>
+      </input>
+      <output type="gz.msgs.Twist" topic="/cmd_vel">
+        linear: {{x: 0.0}}, angular: {{z: 0.5}}
+      </output>
+    </plugin>
+    <plugin filename="gz-sim-triggered-publisher-system"
+            name="gz::sim::systems::TriggeredPublisher">
+      <input type="gz.msgs.Int32" topic="/keyboard/keypress">
+        <match field="data">16777236</match>
+      </input>
+      <output type="gz.msgs.Twist" topic="/cmd_vel">
+        linear: {{x: 0.0}}, angular: {{z: -0.5}}
+      </output>
     </plugin>
 
     <light type="directional" name="sun">
