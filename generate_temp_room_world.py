@@ -8,28 +8,84 @@ configuration space proves the whole room stays reachable from the spawn point.
 import argparse
 import math
 import random
+import re
 from collections import deque
+from pathlib import Path
 
 p = argparse.ArgumentParser()
 p.add_argument("--seed", type=int, default=0)  # same seed -> same map
 p.add_argument("--size", type=float, nargs=2, default=[10.0, 8.0], metavar=("X", "Y"))
-p.add_argument("--obstacles", type=int, default=14)
+p.add_argument("--obstacles", type=int, default=28)
 p.add_argument("--box-ratio", type=float, default=0.7)  # share of boxes vs cylinders
 p.add_argument(
     "--radius", type=float, nargs=2, default=[0.15, 0.4], metavar=("MIN", "MAX")
 )
-p.add_argument(
-    "--clearance", type=float, default=0.8
-)  # narrowest corridor the robot must fit
+p.add_argument("--clearance", type=float)  # default: robot width + 10%
+p.add_argument("--platform", default="rover_differential_lidar")
 p.add_argument("--spawn-clear", type=float)  # defaults to --clearance
 p.add_argument("--robot", default="")  # "" to leave the room empty
 p.add_argument("--cell", type=float, default=0.05)  # flood-fill resolution
 p.add_argument("-o", "--out", default="worlds/temp_room.sdf")
 a = p.parse_args()
 
+
+def robot_width(platform):
+    """Widest Y extent of the platform's collision shapes, in metres.
+
+    Every geometry is treated as a box (sphere -> 2r cube, cylinder -> 2r x 2r x l),
+    rotated by its link pose, so wheels sticking out past the chassis are counted.
+    """
+    import xml.etree.ElementTree as ET
+
+    path = Path(__file__).parent / "platforms" / platform / "model.sdf"
+    if not path.exists():
+        return None
+
+    def pose_of(el):
+        p = el.find("pose")
+        v = [float(x) for x in p.text.split()] if p is not None and p.text else [0.0] * 6
+        return (v + [0.0] * 6)[:6]
+
+    lo = hi = 0.0
+    for link in ET.parse(path).getroot().iter("link"):
+        lx, ly, lz, lr, lp, lyaw = pose_of(link)
+        for col in link.iter("collision"):
+            cx, cy, cz, cr, cp, cyaw = pose_of(col)
+            geom = col.find("geometry")
+            if geom is None:
+                continue
+            if (b := geom.find("box")) is not None:
+                ex, ey, ez = [float(x) / 2 for x in b.find("size").text.split()]
+            elif (c := geom.find("cylinder")) is not None:
+                r = float(c.find("radius").text)
+                ex = ey = r
+                ez = float(c.find("length").text) / 2
+            elif (s := geom.find("sphere")) is not None:
+                ex = ey = ez = float(s.find("radius").text)
+            else:
+                continue  # meshes: no cheap extent, chassis boxes cover us
+
+            r_, p_, y_ = lr + cr, lp + cp, lyaw + cyaw
+            cr_, sr = math.cos(r_), math.sin(r_)
+            cp_, sp = math.cos(p_), math.sin(p_)
+            cy_, sy = math.cos(y_), math.sin(y_)
+            # row of the ZYX rotation matrix that maps body axes onto world Y
+            row = (cp_ * sy, sr * sp * sy + cr_ * cy_, cr_ * sp * sy - sr * cy_)
+            centre = ly + cy
+            reach = abs(row[0]) * ex + abs(row[1]) * ey + abs(row[2]) * ez
+            lo, hi = min(lo, centre - reach), max(hi, centre + reach)
+    return hi - lo
+
+
 WALL_H, WALL_T = 2.5, 0.15
 sx, sy = a.size
 rng = random.Random(a.seed)
+if a.clearance is None:
+    w = robot_width(a.platform)
+    if w is None:
+        p.error(f"platform '{a.platform}' not found; pass --clearance explicitly")
+    a.clearance = w * 1.1
+    print(f"platform {a.platform}: width {w:.2f} m -> clearance {a.clearance:.2f} m")
 a.spawn_clear = a.spawn_clear if a.spawn_clear is not None else a.clearance
 # sampler keeps two extra cells of slack so the discretised check below can't
 # fail on a corridor that is passable by a hair
@@ -84,6 +140,45 @@ while q:
 
 unreachable = sum(grid[i][j] and not seen[i][j] for i in range(nx) for j in range(ny))
 assert unreachable == 0, f"{unreachable} free cells are walled off from the spawn point"
+
+
+
+
+def gui_section():
+    """Default Gazebo GUI plus the KeyPublisher the arrow-key triggers need.
+
+    A <gui> block in the world *replaces* the default layout, so declaring only
+    KeyPublisher leaves a window with no 3D view. Reuse the shipped gui.config
+    instead of hand-maintaining the plugin list.
+    """
+    import sys
+
+    key_pub = '  <plugin filename="KeyPublisher" name="Key Publisher"/>'
+    found = sorted(Path(sys.prefix).glob("share/gz/gz-sim*/gui/gui.config"))
+    if not found:
+        print("warning: gui.config not found, window will have no 3D view")
+        return f"<gui fullscreen=\"0\">\n{key_pub}\n    </gui>"
+    body = found[-1].read_text()
+    body = re.sub(r"<\?xml[^>]*\?>", "", body).strip()
+    return f'<gui fullscreen="0">\n{body}\n{key_pub}\n    </gui>'
+
+
+def start_marker(radius):
+    """Visual-only disc at the origin: where the robot starts and odom is zeroed."""
+    return f"""    <model name="start_marker">
+      <static>true</static>
+      <pose>0 0 0.005 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><cylinder><radius>{radius:.3f}</radius><length>0.01</length></cylinder></geometry>
+          <material>
+            <ambient>0.8 0.1 0.1 1</ambient>
+            <diffuse>0.8 0.1 0.1 1</diffuse>
+            <emissive>0.3 0.0 0.0 1</emissive>
+          </material>
+        </visual>
+      </link>
+    </model>"""
 
 
 def model(name, x, y, z, yaw, geom, rgba):
@@ -156,6 +251,8 @@ for n, (x, y, r, is_box, yaw) in enumerate(obs):
         )
     parts.append(model(f"obs_{n}", x, y, oh / 2, yaw, geom, rgba))
 
+parts.append(start_marker(a.clearance / 2 * 1.2))
+
 robot = (
     f"""    <include>\n      <uri>model://{a.robot}</uri>\n      <pose>0 0 0 0 0 0</pose>\n    </include>\n"""
     if a.robot
@@ -177,9 +274,7 @@ with open(a.out, "w") as f:
       <render_engine>ogre2</render_engine>
     </plugin>
 
-    <gui fullscreen="0">
-      <plugin filename="KeyPublisher" name="Key Publisher"/>
-    </gui>
+    {gui_section()}
 
     <!-- arrow keys -> /cmd_vel -->
     <plugin filename="gz-sim-triggered-publisher-system"
@@ -218,6 +313,15 @@ with open(a.out, "w") as f:
         linear: {{x: 0.0}}, angular: {{z: -0.5}}
       </output>
     </plugin>
+    <plugin filename="gz-sim-triggered-publisher-system"
+            name="gz::sim::systems::TriggeredPublisher">
+      <input type="gz.msgs.Int32" topic="/keyboard/keypress">
+        <match field="data">32</match>
+      </input>
+      <output type="gz.msgs.Twist" topic="/cmd_vel">
+        linear: {{x: 0.0}}, angular: {{z: 0.0}}
+      </output>
+    </plugin>
 
     <light type="directional" name="sun">
       <cast_shadows>true</cast_shadows>
@@ -245,5 +349,5 @@ with open(a.out, "w") as f:
 boxes = sum(o[3] for o in obs)
 print(
     f"{a.out}: {boxes} boxes + {len(obs) - boxes} cylinders, {sx}x{sy} m, "
-    f"clearance {a.clearance} m verified, seed {a.seed}"
+    f"clearance {a.clearance:.2f} m verified, seed {a.seed}"
 )

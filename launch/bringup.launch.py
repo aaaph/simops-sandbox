@@ -1,16 +1,26 @@
-"""Gazebo + robot_state_publisher + spawn + ros_gz bridge, in one shot.
+"""Gazebo + spawn + ros_gz bridge for one platform.
 
-ros2 launch launch/bringup.launch.py                 # temp_room.sdf, with GUI
-ros2 launch launch/bringup.launch.py gui:=false      # headless
-ros2 launch launch/bringup.launch.py platform:=vehicle_blue
-ros2 launch launch/bringup.launch.py initial_sim_time:=0   # reproducible stamps
+ros2 launch launch/bringup.launch.py                                  # default platform, GUI
+ros2 launch launch/bringup.launch.py gui:=false
+ros2 launch launch/bringup.launch.py platform:=rover_differential_lidar
+ros2 launch launch/bringup.launch.py initial_sim_time:=0              # reproducible stamps
+
+A platform is either platforms/<name>/model.sdf (spawned from the file) or
+models/<name>/<name>.urdf.xacro (published by robot_state_publisher and spawned
+from /robot_description). Its bridge config is platforms/<name>/bridge.yaml if
+present, otherwise config/ros_gz_bridge.yaml.
 """
 
 import time
 from pathlib import Path
 
-from launch.actions import DeclareLaunchArgument, ExecuteProcess, TimerAction
-from launch.conditions import IfCondition, UnlessCondition
+from launch.actions import (
+    DeclareLaunchArgument,
+    ExecuteProcess,
+    OpaqueFunction,
+    RegisterEventHandler,
+)
+from launch.event_handlers import OnProcessExit
 from launch.substitutions import Command, LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
@@ -20,29 +30,98 @@ from launch import LaunchDescription
 ROOT = Path(__file__).resolve().parent.parent
 
 
+def platform_actions(context):
+    """Resolved at launch time: the spawn path depends on the platform's value."""
+    platform = LaunchConfiguration("platform").perform(context)
+    sim_time = {"use_sim_time": True}
+    actions = []
+
+    sdf = ROOT / "platforms" / platform / "model.sdf"
+    xacro = ROOT / "models" / platform / f"{platform}.urdf.xacro"
+
+    if sdf.exists():
+        spawn_args = ["-file", str(sdf)]
+        spawn_z = "0.2"
+        # put the wheel axle on the world origin: DiffDrive zeroes odom there and
+        # the ground-truth plugin is offset to the same point, so the two agree
+        spawn_x = "0.2"
+    elif xacro.exists():
+        actions.append(
+            Node(
+                package="robot_state_publisher",
+                executable="robot_state_publisher",
+                parameters=[
+                    {
+                        "robot_description": ParameterValue(
+                            Command(["xacro ", str(xacro)]), value_type=str
+                        )
+                    },
+                    sim_time,
+                ],
+                output="screen",
+            )
+        )
+        spawn_args = ["-topic", "robot_description"]
+        spawn_z = "0.4"  # wheels are r=0.4 on this one
+        spawn_x = "0.0"
+    else:
+        raise RuntimeError(
+            f"platform '{platform}': neither {sdf} nor {xacro} exists"
+        )
+
+    bridge_cfg = ROOT / "platforms" / platform / "bridge.yaml"
+    if not bridge_cfg.exists():
+        bridge_cfg = ROOT / "config" / "ros_gz_bridge.yaml"
+
+    # `create` polls for the world's /create service itself, so it can start at
+    # once; the GUI then waits for it to finish rather than for a fixed delay,
+    # because a model spawned after the GUI attaches may never be rendered.
+    spawn = Node(
+        package="ros_gz_sim",
+        executable="create",
+        arguments=[
+            "-world", LaunchConfiguration("world_name"),
+            "-name", platform,
+            "-x", spawn_x,
+            "-z", spawn_z,
+            *spawn_args,
+        ],
+        parameters=[sim_time],
+        output="screen",
+    )
+    actions.append(spawn)
+    if LaunchConfiguration("gui").perform(context) == "true":
+        actions.append(
+            RegisterEventHandler(
+                OnProcessExit(
+                    target_action=spawn,
+                    on_exit=[ExecuteProcess(cmd=["gz", "sim", "-g"], output="screen")],
+                )
+            )
+        )
+    actions.append(
+        Node(
+            package="ros_gz_bridge",
+            executable="parameter_bridge",
+            parameters=[{"config_file": str(bridge_cfg)}, sim_time],
+            output="screen",
+        )
+    )
+    return actions
+
+
 def generate_launch_description():
     world = LaunchConfiguration("world")
-    world_name = LaunchConfiguration("world_name")
-    platform = LaunchConfiguration("platform")
     gui = LaunchConfiguration("gui")
     t0 = LaunchConfiguration("initial_sim_time")
-    sim_time = {"use_sim_time": True}
-
     world_path = PathJoinSubstitution([str(ROOT), world])
-    xacro_path = PathJoinSubstitution(
-        [str(ROOT), "models", platform, "vehicle_blue.urdf.xacro"]
-    )
-    # one description feeds both TF and the simulator
-    robot_description = ParameterValue(
-        Command(["xacro ", xacro_path]), value_type=str
-    )
 
     return LaunchDescription(
         [
             DeclareLaunchArgument("world", default_value="worlds/temp_room.sdf"),
             # must match <world name=...> inside the .sdf; the generator emits "room"
             DeclareLaunchArgument("world_name", default_value="room"),
-            DeclareLaunchArgument("platform", default_value="vehicle_blue"),
+            DeclareLaunchArgument("platform", default_value="rover_differential_lidar"),
             DeclareLaunchArgument("gui", default_value="true"),
             # wall-clock epoch by default: keeps Rerun off 1970 and stops
             # consecutive runs from overwriting each other. Pass 0 for
@@ -50,50 +129,13 @@ def generate_launch_description():
             DeclareLaunchArgument(
                 "initial_sim_time", default_value=str(int(time.time()))
             ),
+            # macOS Gazebo refuses to run server and GUI in one process
+            # (gazebosim/gz-sim#44), so the server always runs on its own and the
+            # GUI, when asked for, is a second process that attaches to it.
             ExecuteProcess(
-                cmd=["gz", "sim", "-r", "--initial-sim-time", t0, world_path],
-                condition=IfCondition(gui),
+                cmd=["gz", "sim", "-s", "-r", "--initial-sim-time", t0, world_path],
                 output="screen",
             ),
-            ExecuteProcess(
-                cmd=["gz", "sim", "-r", "-s", "--initial-sim-time", t0, world_path],
-                condition=UnlessCondition(gui),
-                output="screen",
-            ),
-            Node(
-                package="robot_state_publisher",
-                executable="robot_state_publisher",
-                parameters=[{"robot_description": robot_description}, sim_time],
-                output="screen",
-            ),
-            # ponytail: fixed delay instead of an event handler on the gz process.
-            # `create` needs the world's /create service up. Swap for a
-            # RegisterEventHandler if 3 s ever turns out to be too short.
-            TimerAction(
-                period=3.0,
-                actions=[
-                    Node(
-                        package="ros_gz_sim",
-                        executable="create",
-                        arguments=[
-                            "-world", world_name,
-                            "-topic", "robot_description",
-                            "-name", platform,
-                            "-z", "0.4",
-                        ],
-                        parameters=[sim_time],
-                        output="screen",
-                    )
-                ],
-            ),
-            Node(
-                package="ros_gz_bridge",
-                executable="parameter_bridge",
-                parameters=[
-                    {"config_file": str(ROOT / "config" / "ros_gz_bridge.yaml")},
-                    sim_time,
-                ],
-                output="screen",
-            ),
+            OpaqueFunction(function=platform_actions),
         ]
     )
