@@ -3,10 +3,10 @@
   <model name='rover_differential_lidar'>
     <!--Links-->
     <link name='base_link'>
-      <pose relative_to='__model__'>0 0 0.1 0 0 0</pose>
+      <pose relative_to='__model__'>0 0 0.1 0 0 0</pose>  <!-- model origin == base_link == wheel axle -->
       <inertial>
         <mass>5.0</mass>
-        <pose>-0.2 0 0 0 0 0</pose> <!-- Center of mass offset to wheel axis-->
+        <pose>0 0 0 0 0 0</pose> <!-- CoM sits on base_link, which is the wheel axis -->
         <inertia>
           <ixx>0.030208333</ixx>
           <ixy>0.0</ixy>
@@ -17,7 +17,7 @@
         </inertia>
       </inertial>
       <visual name='visual'>
-        <pose>0 0 -0.05 0 0 0</pose>
+        <pose>0.2 0 -0.05 0 0 0</pose>
         <geometry>
           <mesh>
             <uri>model://rover_differential_lidar/meshes/rover_differential_base.dae</uri>
@@ -25,6 +25,7 @@
         </geometry>
       </visual>
       <collision name='collision'>
+        <pose>0.2 0 0 0 0 0</pose>
         <geometry>
           <box>
             <size>1 0.5 0.1</size>
@@ -34,6 +35,7 @@
 
       <!--Sensors-->
       <sensor name="air_pressure_sensor" type="air_pressure">
+        <pose>0.2 0 0 0 0 0</pose>
         <gz_frame_id>base_link</gz_frame_id>
         <always_on>1</always_on>
         <update_rate>50</update_rate>
@@ -48,6 +50,7 @@
         </air_pressure>
       </sensor>
       <sensor name="magnetometer_sensor" type="magnetometer">
+        <pose>0.2 0 0 0 0 0</pose>
         <gz_frame_id>base_link</gz_frame_id>
         <always_on>1</always_on>
         <update_rate>100</update_rate>
@@ -74,6 +77,7 @@
         </magnetometer>
       </sensor>
       <sensor name="imu_sensor" type="imu">
+        <pose>0.2 0 0 0 0 0</pose>
         <gz_frame_id>base_link</gz_frame_id>
         <always_on>1</always_on>
         <update_rate>250</update_rate>
@@ -126,6 +130,7 @@
         </imu>
       </sensor>
       <sensor name="navsat_sensor" type="navsat">
+        <pose>0.2 0 0 0 0 0</pose>
         <gz_frame_id>base_link</gz_frame_id>
         <always_on>1</always_on>
         <update_rate>30</update_rate>
@@ -133,7 +138,7 @@
     </link>
 
     <link name='wheel_rear_left_link'>
-      <pose relative_to="base_link">-0.2 0.3 0 -1.5707 0 0</pose>
+      <pose relative_to="base_link">0 0.3 0 -1.5707 0 0</pose>
       <inertial>
         <mass>0.5</mass>
         <inertia>
@@ -154,11 +159,14 @@
         </geometry>
       </visual>
       <collision name='collision'>
+        <!-- Sphere, not the cylinder the visual shows: a cylinder touches the ground
+             along a line, and the solver picks a contact point off that line that
+             jumps with wheel spin, shoving the body ~3 cm sideways every turn in
+             place. A sphere of the same radius has one contact point. -->
         <geometry>
-          <cylinder>
+          <sphere>
             <radius>0.1</radius>
-            <length>0.1</length>
-          </cylinder>
+          </sphere>
         </geometry>
         <surface>
           <friction>
@@ -175,7 +183,7 @@
     </link>
 
     <link name='wheel_rear_right_link'>
-      <pose relative_to="base_link">-0.2 -0.3 0 -1.5707 0 0</pose>
+      <pose relative_to="base_link">0 -0.3 0 -1.5707 0 0</pose>
       <inertial>
         <mass>0.5</mass>
         <inertia>
@@ -196,11 +204,14 @@
         </geometry>
       </visual>
       <collision name='collision'>
+        <!-- Sphere, not the cylinder the visual shows: a cylinder touches the ground
+             along a line, and the solver picks a contact point off that line that
+             jumps with wheel spin, shoving the body ~3 cm sideways every turn in
+             place. A sphere of the same radius has one contact point. -->
         <geometry>
-          <cylinder>
+          <sphere>
             <radius>0.1</radius>
-            <length>0.1</length>
-          </cylinder>
+          </sphere>
         </geometry>
         <surface>
           <friction>
@@ -217,7 +228,7 @@
     </link>
 
     <link name='cast_wheel_front_link'>
-      <pose relative_to="base_link">0.25 0 -0.025 -1.5707 0 0</pose>
+      <pose relative_to="base_link">0.45 0 -0.025 -1.5707 0 0</pose>
       <inertial>
         <mass>1</mass>
         <inertia>
@@ -261,7 +272,7 @@
     </link>
 
     <link name='cast_wheel_rear_link'>
-      <pose relative_to="base_link">-0.3 0 -0.025 -1.5707 0 0</pose>
+      <pose relative_to="base_link">-0.1 0 -0.025 -1.5707 0 0</pose>
       <inertial>
         <mass>1</mass>
         <inertia>
@@ -362,7 +373,7 @@
          gz_frame_id. Sensor written out rather than including lidar_2d_v2 so
          topic and frame stay under our control. -->
     <link name="lidar_link">
-      <pose relative_to="base_link">-0.2 0 0.26 0 0 0</pose>
+      <pose relative_to="base_link">0 0 0.26 0 0 0</pose>
       <inertial>
         <mass>0.1</mass>
         <inertia><ixx>1e-4</ixx><ixy>0</ixy><ixz>0</ixz><iyy>1e-4</iyy><iyz>0</iyz><izz>1e-4</izz></inertia>
@@ -373,7 +384,7 @@
       </visual>
       <sensor name="lidar" type="gpu_lidar">
         <topic>scan</topic>
-        <gz_frame_id>base_link</gz_frame_id>
+        <gz_frame_id>lidar_link</gz_frame_id>
         <update_rate>10</update_rate>
         <always_on>1</always_on>
         <visualize>true</visualize>
@@ -422,9 +433,6 @@
       <odom_frame>odom</odom_frame>
       <robot_base_frame>base_link</robot_base_frame>
       <odom_publish_frequency>50</odom_publish_frequency>
-      <!-- report the wheel-axle midpoint, which is what DiffDrive calls base_link
-           and where the lidar sits; base_link itself is 0.2 m ahead of it -->
-      <xyz_offset>-0.2 0 0</xyz_offset>
       <dimensions>2</dimensions>
     </plugin>
 

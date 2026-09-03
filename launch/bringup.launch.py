@@ -30,6 +30,25 @@ from launch import LaunchDescription
 ROOT = Path(__file__).resolve().parent.parent
 
 
+def sensor_frames(sdf):
+    """base_link -> <link> for every SDF link that carries a sensor.
+
+    Read from the model rather than restated in a URDF, so the frames cannot
+    drift away from the geometry Gazebo actually simulates.
+    """
+    import xml.etree.ElementTree as ET
+
+    out = []
+    for link in ET.parse(sdf).getroot().iter("link"):
+        pose = link.find("pose")
+        if link.find("sensor") is None or pose is None:
+            continue
+        if pose.get("relative_to") != "base_link":
+            continue
+        out.append((link.get("name"), (pose.text or "0 0 0 0 0 0").split()))
+    return out
+
+
 def platform_actions(context):
     """Resolved at launch time: the spawn path depends on the platform's value."""
     platform = LaunchConfiguration("platform").perform(context)
@@ -42,9 +61,7 @@ def platform_actions(context):
     if sdf.exists():
         spawn_args = ["-file", str(sdf)]
         spawn_z = "0.2"
-        # put the wheel axle on the world origin: DiffDrive zeroes odom there and
-        # the ground-truth plugin is offset to the same point, so the two agree
-        spawn_x = "0.2"
+        spawn_x = "0.0"
     elif xacro.exists():
         actions.append(
             Node(
@@ -65,9 +82,7 @@ def platform_actions(context):
         spawn_z = "0.4"  # wheels are r=0.4 on this one
         spawn_x = "0.0"
     else:
-        raise RuntimeError(
-            f"platform '{platform}': neither {sdf} nor {xacro} exists"
-        )
+        raise RuntimeError(f"platform '{platform}': neither {sdf} nor {xacro} exists")
 
     bridge_cfg = ROOT / "platforms" / platform / "bridge.yaml"
     if not bridge_cfg.exists():
@@ -80,10 +95,14 @@ def platform_actions(context):
         package="ros_gz_sim",
         executable="create",
         arguments=[
-            "-world", LaunchConfiguration("world_name"),
-            "-name", platform,
-            "-x", spawn_x,
-            "-z", spawn_z,
+            "-world",
+            LaunchConfiguration("world_name"),
+            "-name",
+            platform,
+            "-x",
+            spawn_x,
+            "-z",
+            spawn_z,
             *spawn_args,
         ],
         parameters=[sim_time],
@@ -99,6 +118,21 @@ def platform_actions(context):
                 )
             )
         )
+    frames = sensor_frames(sdf) if sdf.exists() else []
+    if frames:
+        actions.append(
+            Node(
+                executable=str(ROOT / "sim" / "frame_publisher.py"),
+                name="frame_publisher",
+                parameters=[
+                    {"parent": "base_link",
+                     "frames": [f"{n} " + " ".join(v) for n, v in frames]},
+                    sim_time,
+                ],
+                output="screen",
+            )
+        )
+
     actions.append(
         Node(
             package="ros_gz_bridge",
@@ -112,7 +146,7 @@ def platform_actions(context):
 
 def generate_launch_description():
     world = LaunchConfiguration("world")
-    gui = LaunchConfiguration("gui")
+    _gui = LaunchConfiguration("gui")
     t0 = LaunchConfiguration("initial_sim_time")
     world_path = PathJoinSubstitution([str(ROOT), world])
 
