@@ -1,0 +1,13 @@
+# The bridge a platform gets when it ships no platforms/<name>/bridge.yaml.
+#
+# Deliberately one topic: /clock is the only thing every Gazebo world publishes
+# and every ROS node needs (use_sim_time is on). Sensors, odometry and commands
+# are named by the platform's own plugins, so guessing them here would either
+# bridge nothing or, worse, bridge another robot's topic list and look like it
+# worked. The launch file warns when this file is used -- write a real
+# bridge.yaml next to the model instead.
+- ros_topic_name: "/clock"
+  gz_topic_name: "/clock"
+  ros_type_name: "rosgraph_msgs/msg/Clock"
+  gz_type_name: "gz.msgs.Clock"
+  direction: GZ_TO_ROS

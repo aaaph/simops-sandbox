@@ -8,13 +8,14 @@ ros2 launch launch/bringup.launch.py initial_sim_time:=0              # reproduc
 A platform is either platforms/<name>/model.sdf (spawned from the file) or
 models/<name>/<name>.urdf.xacro (published by robot_state_publisher and spawned
 from /robot_description). Its bridge config is platforms/<name>/bridge.yaml if
-present, otherwise config/ros_gz_bridge.yaml.
+present, otherwise sim/bridge_fallback.yaml, which is /clock and a warning.
 """
 
 import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+import launch.logging
 from launch.actions import (
     DeclareLaunchArgument,
     ExecuteProcess,
@@ -81,7 +82,12 @@ def platform_actions(context: LaunchContext) -> list:
 
     bridge_cfg = ROOT / "platforms" / platform / "bridge.yaml"
     if not bridge_cfg.exists():
-        bridge_cfg = ROOT / "config" / "ros_gz_bridge.yaml"
+        bridge_cfg = ROOT / "sim" / "bridge_fallback.yaml"
+        launch.logging.get_logger("bringup").warning(
+            f"platform '{platform}' ships no bridge.yaml: falling back to {bridge_cfg.name}, "
+            f"which bridges /clock and nothing else. Its sensors and commands stay on the "
+            f"Gazebo side until platforms/{platform}/bridge.yaml exists."
+        )
 
     # `create` polls for the world's /create service itself, so it can start at
     # once; the GUI then waits for it to finish rather than for a fixed delay,
