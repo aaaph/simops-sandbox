@@ -12,6 +12,7 @@ present, otherwise config/ros_gz_bridge.yaml.
 """
 
 import time
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from launch.actions import (
@@ -25,32 +26,30 @@ from launch.substitutions import Command, LaunchConfiguration, PathJoinSubstitut
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 
-from launch import LaunchDescription
+from launch import LaunchContext, LaunchDescription
 
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def sensor_frames(sdf):
+def sensor_frames(sdf: Path) -> list[tuple[str, list[str]]]:
     """base_link -> <link> for every SDF link that carries a sensor.
 
     Read from the model rather than restated in a URDF, so the frames cannot
     drift away from the geometry Gazebo actually simulates.
     """
-    import xml.etree.ElementTree as ET
-
     out = []
     for link in ET.parse(sdf).getroot().iter("link"):
-        pose = link.find("pose")
-        if link.find("sensor") is None or pose is None:
+        name, pose = link.get("name"), link.find("pose")
+        if name is None or link.find("sensor") is None or pose is None:
             continue
         if pose.get("relative_to") != "base_link":
             continue
-        out.append((link.get("name"), (pose.text or "0 0 0 0 0 0").split()))
+        out.append((name, (pose.text or "0 0 0 0 0 0").split()))
     return out
 
 
-def platform_actions(context):
-    """Resolved at launch time: the spawn path depends on the platform's value."""
+def platform_actions(context: LaunchContext) -> list:
+    """Resolve the platform at launch time: the spawn path depends on its value."""
     platform = LaunchConfiguration("platform").perform(context)
     sim_time = {"use_sim_time": True}
     actions = []
@@ -68,11 +67,7 @@ def platform_actions(context):
                 package="robot_state_publisher",
                 executable="robot_state_publisher",
                 parameters=[
-                    {
-                        "robot_description": ParameterValue(
-                            Command(["xacro ", str(xacro)]), value_type=str
-                        )
-                    },
+                    {"robot_description": ParameterValue(Command(["xacro ", str(xacro)]), value_type=str)},
                     sim_time,
                 ],
                 output="screen",
@@ -125,8 +120,7 @@ def platform_actions(context):
                 executable=str(ROOT / "sim" / "frame_publisher.py"),
                 name="frame_publisher",
                 parameters=[
-                    {"parent": "base_link",
-                     "frames": [f"{n} " + " ".join(v) for n, v in frames]},
+                    {"parent": "base_link", "frames": [f"{n} " + " ".join(v) for n, v in frames]},
                     sim_time,
                 ],
                 output="screen",
@@ -144,7 +138,8 @@ def platform_actions(context):
     return actions
 
 
-def generate_launch_description():
+def generate_launch_description() -> LaunchDescription:
+    """Declare the launch arguments; the platform decides the rest."""
     world = LaunchConfiguration("world")
     _gui = LaunchConfiguration("gui")
     t0 = LaunchConfiguration("initial_sim_time")
@@ -160,9 +155,7 @@ def generate_launch_description():
             # wall-clock epoch by default: keeps Rerun off 1970 and stops
             # consecutive runs from overwriting each other. Pass 0 for
             # reproducible stamps.
-            DeclareLaunchArgument(
-                "initial_sim_time", default_value=str(int(time.time()))
-            ),
+            DeclareLaunchArgument("initial_sim_time", default_value=str(int(time.time()))),
             # macOS Gazebo refuses to run server and GUI in one process
             # (gazebosim/gz-sim#44), so the server always runs on its own and the
             # GUI, when asked for, is a second process that attaches to it.

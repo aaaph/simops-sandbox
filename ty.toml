@@ -1,0 +1,16 @@
+
+[rules]
+unused-ignore-comment = "warn"
+redundant-cast = "ignore"
+possibly-missing-attribute = "error"
+possibly-missing-import = "error"
+
+[src]
+include = ["sim", "launch"]
+
+[environment]
+python-version = "3.12"
+# rclpy, scipy and friends live in the pixi env, not in any system python, so say
+# so here: this way `ty check` is right whether it runs under `pixi run` or from
+# an editor that picked a different interpreter.
+python = ".pixi/envs/default"

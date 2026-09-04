@@ -13,11 +13,14 @@ RMW_IMPLEMENTATION = "rmw_zenoh_cpp"
 GZ_SIM_RESOURCE_PATH = "$PIXI_PROJECT_ROOT/models:$PIXI_PROJECT_ROOT/worlds:$PIXI_PROJECT_ROOT/platforms"
 
 [tasks]
-world = "python generate_temp_room_world.py --seed 42 --size 20 16 -o worlds/temp_room.sdf"
+world = "python sim/generate_temp_room_world.py --seed 42 --size 20 16 -o worlds/temp_room.sdf"
 zenoh = "ros2 run rmw_zenoh_cpp rmw_zenohd"
 bringup = { cmd = "ros2 launch launch/bringup.launch.py", depends-on = [
     "world",
 ] }
+lint = "ruff check --fix --show-fixes && ty check"
+test = "pytest"
+format = "ruff format"
 
 [dependencies]
 gz-sim = ">=8.10,<9"   # Harmonic: the version ros-jazzy-ros-gz and PX4 both target
@@ -27,3 +30,8 @@ ros-jazzy-ros-gz = ">=1.0.22,<2"
 ros-jazzy-slam-toolbox = ">=2.8.5,<3"
 ros-jazzy-nav2-bringup = ">=1.3.12,<2"
 ros-jazzy-robot-localization = ">=3.8.3,<4"
+ruff = ">=0.16.5,<0.17"
+ty = ">=0.0.78,<0.0.79"
+pytest = ">=9.1.1,<10"
+scipy = ">=1.18.0,<2"
+pre-commit = ">=4.6.2,<5"

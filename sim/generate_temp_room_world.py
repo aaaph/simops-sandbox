@@ -9,17 +9,19 @@ import argparse
 import math
 import random
 import re
+import sys
+import xml.etree.ElementTree as ET
 from collections import deque
 from pathlib import Path
+
+from scipy.spatial.transform import Rotation as Rot
 
 p = argparse.ArgumentParser()
 p.add_argument("--seed", type=int, default=0)  # same seed -> same map
 p.add_argument("--size", type=float, nargs=2, default=[10.0, 8.0], metavar=("X", "Y"))
 p.add_argument("--obstacles", type=int, default=28)
 p.add_argument("--box-ratio", type=float, default=0.7)  # share of boxes vs cylinders
-p.add_argument(
-    "--radius", type=float, nargs=2, default=[0.15, 0.4], metavar=("MIN", "MAX")
-)
+p.add_argument("--radius", type=float, nargs=2, default=[0.15, 0.4], metavar=("MIN", "MAX"))
 p.add_argument("--clearance", type=float)  # default: robot width + 10%
 p.add_argument("--platform", default="rover_differential_lidar")
 p.add_argument("--spawn-clear", type=float)  # defaults to --clearance
@@ -29,48 +31,44 @@ p.add_argument("-o", "--out", default="worlds/temp_room.sdf")
 a = p.parse_args()
 
 
-def robot_width(platform):
+def robot_width(platform: str) -> float | None:
     """Widest Y extent of the platform's collision shapes, in metres.
 
     Every geometry is treated as a box (sphere -> 2r cube, cylinder -> 2r x 2r x l),
     rotated by its link pose, so wheels sticking out past the chassis are counted.
     """
-    import xml.etree.ElementTree as ET
-
-    path = Path(__file__).parent / "platforms" / platform / "model.sdf"
+    path = Path(__file__).parent.parent / "platforms" / platform / "model.sdf"
     if not path.exists():
         return None
 
-    def pose_of(el):
-        p = el.find("pose")
-        v = [float(x) for x in p.text.split()] if p is not None and p.text else [0.0] * 6
-        return (v + [0.0] * 6)[:6]
+    def nums(el: ET.Element, tag: str) -> list[float]:
+        """Read the numbers in <tag>, empty if it is missing -- SDF leaves plenty optional."""
+        child = el.find(tag)
+        return [float(x) for x in (child.text or "").split()] if child is not None else []
+
+    def pose_of(el: ET.Element) -> list[float]:
+        return (nums(el, "pose") + [0.0] * 6)[:6]
 
     lo = hi = 0.0
     for link in ET.parse(path).getroot().iter("link"):
-        lx, ly, lz, lr, lp, lyaw = pose_of(link)
+        _lx, ly, _lz, lr, lp, lyaw = pose_of(link)
         for col in link.iter("collision"):
-            cx, cy, cz, cr, cp, cyaw = pose_of(col)
+            _cx, cy, _cz, cr, cp, cyaw = pose_of(col)
             geom = col.find("geometry")
             if geom is None:
                 continue
             if (b := geom.find("box")) is not None:
-                ex, ey, ez = [float(x) / 2 for x in b.find("size").text.split()]
+                ex, ey, ez = [v / 2 for v in nums(b, "size")]
             elif (c := geom.find("cylinder")) is not None:
-                r = float(c.find("radius").text)
-                ex = ey = r
-                ez = float(c.find("length").text) / 2
+                ex = ey = nums(c, "radius")[0]
+                ez = nums(c, "length")[0] / 2
             elif (s := geom.find("sphere")) is not None:
-                ex = ey = ez = float(s.find("radius").text)
+                ex = ey = ez = nums(s, "radius")[0]
             else:
                 continue  # meshes: no cheap extent, chassis boxes cover us
 
-            r_, p_, y_ = lr + cr, lp + cp, lyaw + cyaw
-            cr_, sr = math.cos(r_), math.sin(r_)
-            cp_, sp = math.cos(p_), math.sin(p_)
-            cy_, sy = math.cos(y_), math.sin(y_)
-            # row of the ZYX rotation matrix that maps body axes onto world Y
-            row = (cp_ * sy, sr * sp * sy + cr_ * cy_, cr_ * sp * sy - sr * cy_)
+            # row of the rotation matrix that maps body axes onto world Y
+            row = Rot.from_euler("xyz", [lr + cr, lp + cp, lyaw + cyaw]).as_matrix()[1]
             centre = ly + cy
             reach = abs(row[0]) * ex + abs(row[1]) * ey + abs(row[2]) * ez
             lo, hi = min(lo, centre - reach), max(hi, centre + reach)
@@ -108,9 +106,7 @@ for _ in range(a.obstacles * 200):
     obs.append((x, y, r, is_box, rng.uniform(0, math.pi / 2)))
 
 if len(obs) < a.obstacles:
-    print(
-        f"warning: fit only {len(obs)}/{a.obstacles}, room too small or --clearance too big"
-    )
+    print(f"warning: fit only {len(obs)}/{a.obstacles}, room too small or --clearance too big")
 
 # --- the guarantee: erode free space by the robot radius, flood fill from spawn,
 # --- and require that nothing free is cut off
@@ -118,7 +114,8 @@ rad = a.clearance / 2
 nx, ny = int(sx / a.cell), int(sy / a.cell)
 
 
-def free(i, j):
+def free(i: int, j: int) -> bool:
+    """Report whether cell (i, j) is clear of walls and obstacles for the eroded robot."""
     x, y = -sx / 2 + (i + 0.5) * a.cell, -sy / 2 + (j + 0.5) * a.cell
     if abs(x) > sx / 2 - WALL_T / 2 - rad or abs(y) > sy / 2 - WALL_T / 2 - rad:
         return False
@@ -142,28 +139,24 @@ unreachable = sum(grid[i][j] and not seen[i][j] for i in range(nx) for j in rang
 assert unreachable == 0, f"{unreachable} free cells are walled off from the spawn point"
 
 
-
-
-def gui_section():
+def gui_section() -> str:
     """Default Gazebo GUI plus the KeyPublisher the arrow-key triggers need.
 
     A <gui> block in the world *replaces* the default layout, so declaring only
     KeyPublisher leaves a window with no 3D view. Reuse the shipped gui.config
     instead of hand-maintaining the plugin list.
     """
-    import sys
-
     key_pub = '  <plugin filename="KeyPublisher" name="Key Publisher"/>'
     found = sorted(Path(sys.prefix).glob("share/gz/gz-sim*/gui/gui.config"))
     if not found:
         print("warning: gui.config not found, window will have no 3D view")
-        return f"<gui fullscreen=\"0\">\n{key_pub}\n    </gui>"
+        return f'<gui fullscreen="0">\n{key_pub}\n    </gui>'
     body = found[-1].read_text()
     body = re.sub(r"<\?xml[^>]*\?>", "", body).strip()
     return f'<gui fullscreen="0">\n{body}\n{key_pub}\n    </gui>'
 
 
-def start_marker(radius):
+def start_marker(radius: float) -> str:
     """Visual-only disc at the origin: where the robot starts and odom is zeroed."""
     return f"""    <model name="start_marker">
       <static>true</static>
@@ -181,7 +174,8 @@ def start_marker(radius):
     </model>"""
 
 
-def model(name, x, y, z, yaw, geom, rgba):
+def model(name: str, x: float, y: float, z: float, yaw: float, geom: str, rgba: str) -> str:
+    """One static SDF model: same geometry for collision and visual."""
     return f"""    <model name="{name}">
       <static>true</static>
       <pose>{x:.3f} {y:.3f} {z:.3f} 0 0 {yaw:.3f}</pose>
@@ -259,7 +253,7 @@ robot = (
     else ""
 )
 
-with open(a.out, "w") as f:
+with Path(a.out).open("w") as f:
     f.write(f"""<?xml version="1.0"?>
 <sdf version="1.8">
   <world name="room">
@@ -334,7 +328,9 @@ with open(a.out, "w") as f:
     <model name="ground_plane">
       <static>true</static>
       <link name="link">
-        <collision name="c"><geometry><plane><normal>0 0 1</normal><size>100 100</size></plane></geometry></collision>
+        <collision name="c">
+          <geometry><plane><normal>0 0 1</normal><size>100 100</size></plane></geometry>
+        </collision>
         <visual name="v">
           <geometry><plane><normal>0 0 1</normal><size>100 100</size></plane></geometry>
           <material><ambient>0.8 0.8 0.8 1</ambient><diffuse>0.8 0.8 0.8 1</diffuse></material>

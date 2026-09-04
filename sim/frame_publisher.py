@@ -9,27 +9,24 @@ is a trap that costs more than the extra traffic.
 Frames come in as "<child> x y z roll pitch yaw" strings, read out of the model
 SDF by the launch file, so the numbers are never restated by hand.
 """
-import math
 
 import rclpy
 from geometry_msgs.msg import TransformStamped
 from rclpy.node import Node
+from scipy.spatial.transform import Rotation as Rot
 from tf2_msgs.msg import TFMessage
 
 
-def quat(roll, pitch, yaw):
+def quat(roll: float, pitch: float, yaw: float) -> tuple[float, float, float, float]:
     """RPY -> xyzw. Six lines beats a dependency for one conversion."""
-    cr, sr = math.cos(roll / 2), math.sin(roll / 2)
-    cp, sp = math.cos(pitch / 2), math.sin(pitch / 2)
-    cy, sy = math.cos(yaw / 2), math.sin(yaw / 2)
-    return (sr * cp * cy - cr * sp * sy,
-            cr * sp * cy + sr * cp * sy,
-            cr * cp * sy - sr * sp * cy,
-            cr * cp * cy + sr * sp * sy)
+    return Rot.from_euler("xyz", [roll, pitch, yaw]).as_quat()
 
 
 class FramePublisher(Node):
-    def __init__(self):
+    """Republish the platform's fixed frames on /tf, forever."""
+
+    def __init__(self) -> None:
+        """Turn the launch file's frame specs into the messages tick() resends."""
         super().__init__("frame_publisher")
         self.declare_parameter("parent", "base_link")
         self.declare_parameter("frames", [""])
@@ -49,8 +46,7 @@ class FramePublisher(Node):
             t.transform.translation.y = y
             t.transform.translation.z = z
             q = quat(roll, pitch, yaw)
-            (t.transform.rotation.x, t.transform.rotation.y,
-             t.transform.rotation.z, t.transform.rotation.w) = q
+            (t.transform.rotation.x, t.transform.rotation.y, t.transform.rotation.z, t.transform.rotation.w) = q
             self.msgs.append(t)
 
         self.pub = self.create_publisher(TFMessage, "/tf", 10)
@@ -58,14 +54,16 @@ class FramePublisher(Node):
         self.create_timer(1.0 / rate, self.tick)
         self.get_logger().info(f"publishing {len(self.msgs)} fixed frames on /tf at {rate} Hz")
 
-    def tick(self):
+    def tick(self) -> None:
+        """Stamp every fixed frame with now and publish the batch."""
         now = self.get_clock().now().to_msg()
         for t in self.msgs:
             t.header.stamp = now
         self.pub.publish(TFMessage(transforms=self.msgs))
 
 
-def main():
+def main() -> None:
+    """Spin the node; the launch file owns its parameters."""
     rclpy.init()
     rclpy.spin(FramePublisher())
 
