@@ -18,6 +18,12 @@ zenoh = "ros2 run rmw_zenoh_cpp rmw_zenohd"
 bringup = { cmd = "ros2 launch launch/bringup.launch.py", depends-on = [
     "world",
 ] }
+# async_slam_toolbox_node is a lifecycle node: run bare it never leaves the
+# unconfigured state. The shipped launch does the configure+activate.
+slam = "ros2 launch slam_toolbox online_async_launch.py slam_params_file:=platforms/rover_differential_lidar/slam.yaml use_sim_time:=true"
+rerun_bridge = "python sim/rerun_bridge.py --ros-args -p use_sim_time:=true"
+doctor = "python sim/doctor.py"
+teleop = "ros2 run teleop_twist_keyboard teleop_twist_keyboard --ros-args -p use_sim_time:=true"
 lint = "ruff check --fix --show-fixes && ty check"
 test = "pytest"
 format = "ruff format"
@@ -35,3 +41,6 @@ ty = ">=0.0.78,<0.0.79"
 pytest = ">=9.1.1,<10"
 scipy = ">=1.18.0,<2"
 pre-commit = ">=4.6.2,<5"
+
+[pypi-dependencies]
+rerun-sdk = "==0.36.*"

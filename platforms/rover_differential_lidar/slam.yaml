@@ -1,0 +1,23 @@
+# slam_toolbox in async online mode, for this platform.
+#
+# Only what differs from slam_toolbox's own defaults is listed; everything else
+# (Ceres solver, loop closure, scan matcher tuning) stays as shipped. Run it with
+#   pixi run slam
+#
+# We keep base_link rather than the usual base_footprint: nav2 and slam use only
+# x, y and yaw of the robot pose, so a second frame 10 cm below the first would
+# buy nothing here and give two places for configs to disagree.
+slam_toolbox:
+  ros__parameters:
+    use_sim_time: true
+
+    odom_frame: odom
+    map_frame: map
+    base_frame: base_link
+    scan_topic: /scan
+
+    mode: mapping
+    # the lidar in model.sdf tops out at 12 m; claiming more just rasters noise
+    max_laser_range: 12.0
+    # the room is 20x16 m, so 5 cm cells keep the map small and the walls crisp
+    resolution: 0.05

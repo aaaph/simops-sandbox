@@ -133,6 +133,28 @@ def platform_actions(context: LaunchContext) -> list:
             )
         )
 
+    ekf_cfg = ROOT / "platforms" / platform / "ekf.yaml"
+    if ekf_cfg.exists():
+        # Gazebo publishes odometry without a covariance, and robot_localization
+        # reads a zero covariance as certainty, so the raw topic gets one first.
+        actions.append(
+            Node(
+                executable=str(ROOT / "sim" / "odom_covariance.py"),
+                name="odom_covariance",
+                parameters=[sim_time],
+                output="screen",
+            )
+        )
+        actions.append(
+            Node(
+                package="robot_localization",
+                executable="ekf_node",
+                name="ekf_filter_node",
+                parameters=[str(ekf_cfg), sim_time],
+                output="screen",
+            )
+        )
+
     actions.append(
         Node(
             package="ros_gz_bridge",

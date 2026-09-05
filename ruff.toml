@@ -85,6 +85,10 @@ line-ending = "auto"
 [lint.per-file-ignores]
 # ignore unused imports in __init__.py files
 "__init__.py" = ["F401"]
+"sim/doctor.py" = [
+    "T201", # A diagnostic tool reports by printing
+    "S607", # `gz` and `ps` are looked up on PATH on purpose
+]
 "sim/generate_temp_room_world.py" = [
     "T201",    # A CLI generator reports what it generated
     "S311",    # Map layout wants a seeded RNG, not a cryptographic one

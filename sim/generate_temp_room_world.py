@@ -267,6 +267,8 @@ with Path(a.out).open("w") as f:
     <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
       <render_engine>ogre2</render_engine>
     </plugin>
+    <!-- IMU sensors are not rendering sensors, so Sensors above never runs them -->
+    <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu"/>
 
     {gui_section()}
 
