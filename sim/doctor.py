@@ -23,15 +23,17 @@ TOPICS = ("/clock", "/scan", "/imu", "/odom", "/odometry/filtered", "/tf")
 def procs() -> dict[str, int]:
     """Count the processes bringup is supposed to have running."""
     out = subprocess.run(["ps", "ax", "-o", "command"], capture_output=True, text=True, check=False).stdout
+    # Jetty runs the native gz-sim-main binary; Harmonic went through the `gz sim` ruby wrapper
     names = {
-        "gz server": "gz sim -s",
-        "gz gui": "gz sim -g",
-        "bridge": "parameter_bridge",
-        "frames": "frame_publisher.py",
-        "ekf": "ekf_node",
-        "odom cov": "odom_covariance.py",
+        "gz server": ("gz-sim-main -s", "gz sim -s"),
+        "gz gui": ("gz-sim-main -g", "gz sim -g"),
+        "bridge": ("parameter_bridge",),
+        "frames": ("frame_publisher.py",),
+        "ekf": ("ekf_node",),
+        "odom cov": ("odom_covariance.py",),
     }
-    return {label: sum(needle in line for line in out.splitlines()) for label, needle in names.items()}
+    lines = out.splitlines()
+    return {label: sum(any(n in line for n in needles) for line in lines) for label, needles in names.items()}
 
 
 def stepping() -> str:
@@ -91,9 +93,10 @@ def main() -> int:
     print(f"gz physics: {steps} iterations" if steps.isdigit() else f"gz physics: {steps}")
     if steps in ("wedged", "silent"):
         print(
-            "\nverdict: the server is up but not stepping. This is the Gazebo startup deadlock\n"
-            "between the simulation loop and the Sensors render thread -- it is a race, so\n"
-            "kill bringup and start it again; it usually comes up within a try or two."
+            "\nverdict: the server is up but not stepping. Jetty needs ~20 s to load the world and\n"
+            "spawn the robot, so if bringup only just started, wait and ask again. Past that it is\n"
+            "the startup deadlock between the simulation loop and the Sensors render thread --\n"
+            "a race, so kill bringup and start it again."
         )
         return 1
 

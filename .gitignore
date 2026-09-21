@@ -253,3 +253,6 @@ COLCON_IGNORE
 AMENT_IGNORE
 
 # End of https://www.toptal.com/developers/gitignore/api/ros2,ros,python,pydev
+
+# pids and logs of the running stack, written by sim/stack.py
+.stack/

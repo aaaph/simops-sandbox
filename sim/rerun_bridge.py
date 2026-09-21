@@ -18,6 +18,7 @@ Run it next to the stack:  pixi run rerun_bridge
 """
 
 import math
+from typing import TYPE_CHECKING
 
 import numpy as np
 import rclpy
@@ -28,23 +29,29 @@ from nav_msgs.msg import OccupancyGrid, Odometry
 from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
 from sensor_msgs.msg import Imu, LaserScan
-from std_msgs.msg import Header
 from tf2_ros import Buffer, TransformListener
 
-WORLD = "world/map"
+if TYPE_CHECKING:  # annotations are lazy on 3.14, so this is only for the checker
+    from std_msgs.msg import Header
+
+# /world is the simulation origin. slam's `map` starts there too, as long as slam
+# is launched while the robot still sits on its spawn pose.
+WORLD = "world"
 PATH = {
-    "map": WORLD,
-    "odom": f"{WORLD}/odom",
-    "base_link": f"{WORLD}/odom/base_link",
-    "lidar_link": f"{WORLD}/odom/base_link/lidar_link",
+    "map": f"{WORLD}/map",
+    "odom": f"{WORLD}/map/odom",
+    "base_link": f"{WORLD}/map/odom/base_link",
+    "lidar_link": f"{WORLD}/map/odom/base_link/lidar_link",
 }
 CHAIN = (("map", "odom"), ("odom", "base_link"), ("base_link", "lidar_link"))
-# the three estimates share the odom frame, so they hang off it and inherit the
-# map -> odom correction slam publishes
+# base_link *is* the filtered estimate -- the EKF publishes it as tf and as a topic,
+# so the topic gets no arrow of its own. Wheel odometry is diagnostic, but its numbers
+# are odom-relative, so it still hangs below odom. Truth belongs to no estimator: it
+# sits at the world root, untouched by the map -> odom correction.
 ESTIMATES = {
-    "/odom": ("wheels", [230, 150, 70]),
-    "/odometry/filtered": ("filtered", [80, 170, 240]),
-    "/ground_truth": ("truth", [120, 220, 120]),
+    "/odom": (f"{WORLD}/map/odom/diagnostics/wheels", "wheels", [230, 150, 70]),
+    "/odometry/filtered": (None, "filtered", [80, 170, 240]),
+    "/ground_truth": (f"{WORLD}/truth", "truth", [120, 220, 120]),
 }
 OCCUPIED = 50  # OccupancyGrid is 0..100 with -1 unknown; above this we call it a wall
 
@@ -63,14 +70,17 @@ def blueprint() -> rrb.Blueprint:
     """One tab for the scene, one for the numbers -- so the viewer opens usable."""
     return rrb.Blueprint(
         rrb.Tabs(
-            rrb.Spatial3DView(name="Scene", origin="/world"),
+            rrb.Spatial3DView(name="Scene", origin="/world", background=[0, 0, 0]),
             rrb.Vertical(
                 rrb.TimeSeriesView(name="Drift against truth", origin="/metrics"),
                 rrb.TimeSeriesView(name="IMU", origin="/sensors/imu"),
                 name="Estimates",
             ),
         ),
-        collapse_panels=True,
+        # all panels open: the entity tree and view settings are half the point of looking
+        rrb.BlueprintPanel(expanded=True),
+        rrb.SelectionPanel(expanded=True),
+        rrb.TimePanel(expanded=True),
     )
 
 
@@ -109,10 +119,12 @@ class RerunBridge(Node):
         self.create_subscription(OccupancyGrid, "/map", self.on_map, latched)
         self.create_subscription(LaserScan, "/scan", self.on_scan, 10)
         self.create_subscription(Imu, "/imu", self.on_imu, 10)
-        for topic, (name, color) in ESTIMATES.items():
+        for topic, (path, name, color) in ESTIMATES.items():
             # bind the topic here: the three messages are indistinguishable otherwise,
             # they all claim frame odom -> base_link
-            self.create_subscription(Odometry, topic, lambda m, n=name, c=color: self.on_odom(m, n, c), 10)
+            self.create_subscription(
+                Odometry, topic, lambda m, pa=path, n=name, c=color: self.on_odom(m, pa, n, c), 10
+            )
         self.create_timer(0.05, self.on_frames)
 
     def on_frames(self) -> None:
@@ -145,7 +157,10 @@ class RerunBridge(Node):
         res = msg.info.resolution
         xs = msg.info.origin.position.x + (cols + 0.5) * res
         ys = msg.info.origin.position.y + (rows + 0.5) * res
-        rr.log(f"{WORLD}/grid", rr.Points3D(np.c_[xs, ys, np.zeros_like(xs)], colors=[210, 210, 210], radii=res))
+        rr.log(
+            PATH["map"] + "/grid",
+            rr.Points3D(np.c_[xs, ys, np.zeros_like(xs)], colors=[210, 210, 210], radii=res),
+        )
 
     def on_scan(self, msg: LaserScan) -> None:
         """Ranges as points in the sensor frame; the hierarchy places them."""
@@ -162,16 +177,23 @@ class RerunBridge(Node):
         rr.log("sensors/imu/yaw_rate", rr.Scalars(msg.angular_velocity.z))
         rr.log("sensors/imu/accel_x", rr.Scalars(msg.linear_acceleration.x))
 
-    def on_odom(self, msg: Odometry, name: str, color: list[int]) -> None:
-        """Draw the estimate as an arrow, and score it against truth in /metrics."""
+    def on_odom(self, msg: Odometry, path: str | None, name: str, color: list[int]) -> None:
+        """Draw the estimate where it belongs, and score it against truth in /metrics.
+
+        `path` is None for the filtered estimate: base_link already is that pose, drawn
+        by the frame chain, and a second arrow on top of it would say nothing new.
+        """
         rr.set_time("ros_time", timestamp=stamp_seconds(msg.header))
         p, yaw = msg.pose.pose.position, yaw_of(msg.pose.pose.orientation)
-        rr.log(
-            f"{PATH['odom']}/estimates/{name}",
-            rr.Arrows3D(
-                origins=[[p.x, p.y, 0.05]], vectors=[[0.5 * math.cos(yaw), 0.5 * math.sin(yaw), 0]], colors=[color]
-            ),
-        )
+        if path:
+            rr.log(
+                path,
+                rr.Arrows3D(
+                    origins=[[p.x, p.y, 0.05]],
+                    vectors=[[0.5 * math.cos(yaw), 0.5 * math.sin(yaw), 0]],
+                    colors=[color],
+                ),
+            )
         if name == "truth":
             self.truth = (p.x, p.y, yaw)
             return

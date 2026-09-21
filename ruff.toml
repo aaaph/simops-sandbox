@@ -36,7 +36,7 @@ line-length = 115
 indent-width = 4
 
 
-target-version = "py312"
+target-version = "py314"
 
 [lint]
 # Enable Pyflakes (`F`) and a subset of the pycodestyle (`E`) codes by default.
@@ -85,6 +85,11 @@ line-ending = "auto"
 [lint.per-file-ignores]
 # ignore unused imports in __init__.py files
 "__init__.py" = ["F401"]
+"sim/stack.py" = [
+    "T201", # A CLI reports by printing
+    "S603", # Every command it runs is a constant in the file, not outside input
+    "S607", # `gz`, `ps` and `pixi` are looked up on PATH on purpose
+]
 "sim/doctor.py" = [
     "T201", # A diagnostic tool reports by printing
     "S607", # `gz` and `ps` are looked up on PATH on purpose

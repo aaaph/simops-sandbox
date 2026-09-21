@@ -81,9 +81,12 @@
         <topic>imu</topic>
         <gz_frame_id>base_link</gz_frame_id>
         <always_on>1</always_on>
-        <!-- The real IIM42653 runs at 250 Hz, but bridging that rate to ROS stalls
-             the simulation: above ~40 Hz the gz server deadlocks at startup with
-             the /imu bridge subscribed. 30 Hz is what the EKF consumes anyway. -->
+        <!-- The real IIM42653 runs at 250 Hz, but at that rate the gz server stops
+             stepping the moment anything subscribes to /imu. Not the ROS bridge: a
+             bare `gz topic -e -t /imu` does it too. Not a startup race: it wedges
+             just the same when the subscriber attaches 15 s into a healthy run.
+             Seen on macOS with Harmonic (8.10) and Jetty (10.5), fine at 40 Hz and
+             below. 30 Hz is what the EKF consumes anyway. -->
         <update_rate>30</update_rate>
         <imu>
           <angular_velocity>
