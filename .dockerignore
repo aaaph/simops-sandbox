@@ -1,0 +1,10 @@
+# Build context of every service in docker-compose.yaml (the repo root).
+# The macOS pixi env alone is ~5 GB and useless in a Linux image.
+.pixi/
+.git/
+.stack/
+.vscode/
+**/__pycache__/
+.pytest_cache/
+.ruff_cache/
+**/.DS_Store

@@ -1,0 +1,90 @@
+services:
+  zenoh-router:
+    build:
+      context: .
+      dockerfile: infra/ros2.Dockerfile
+    container_name: zenoh-router
+    restart: always
+    ports:
+      - "7447:7447/tcp"
+      - "7447:7447/udp"
+      # gz GUI in the browser (gui service shares this network namespace).
+      # localhost only: the VNC behind it has no password.
+      - "127.0.0.1:6080:6080"
+    environment:
+      - RUST_LOG=zenoh=info,zenoh::net::routing::queries=trace
+    command: ros2 run rmw_zenoh_cpp rmw_zenohd
+
+  m1-heartbeat:
+    build:
+      context: .
+      dockerfile: infra/ros2.Dockerfile
+    container_name: router-heartbeat
+    restart: always
+    depends_on:
+      - zenoh-router
+    environment:
+      - ZENOH_CONFIG_OVERRIDE=mode="client";connect/endpoints=["tcp/zenoh-router:7447"]
+    logging:
+      driver: json-file
+      options:
+        max-size: "1m"
+        max-file: "1"
+    command: >
+      ros2 topic pub /m1_heartbeat std_msgs/msg/Int32 "{data: 1}" --rate 1
+
+  # gz server with the room (pixi run world). Robots come with their autopilot.
+  world:
+    build:
+      context: .
+      dockerfile: infra/world.Dockerfile
+      target: world
+    container_name: world
+    # Shared localhost: gz-transport between the world and the autopilots that
+    # join it, and zenoh to the router.
+    network_mode: service:zenoh-router
+    depends_on:
+      - zenoh-router
+    environment:
+      - SIM_WORLD=temp_room
+    volumes:
+      - ./worlds:/sim/worlds:ro
+      - ./platforms:/sim/platforms:ro
+
+  # gz GUI attached to the world, served by noVNC: http://localhost:6080/vnc.html
+  gui:
+    build:
+      context: .
+      dockerfile: infra/world.Dockerfile
+      target: gui
+    container_name: gui
+    network_mode: service:zenoh-router
+    # Software rendering redraws nonstop on every core it can get; cap it.
+    cpus: 2
+    environment:
+      - LP_NUM_THREADS=2
+    depends_on:
+      - world
+    volumes:
+      - ./worlds:/sim/worlds:ro
+      - ./platforms:/sim/platforms:ro
+
+  # PX4 SITL (zenoh) joining the world with its rover: /fmu/* on the router.
+  px4:
+    build:
+      context: .
+      dockerfile: infra/px4.Dockerfile
+    container_name: px4
+    network_mode: service:zenoh-router
+    depends_on:
+      - world
+    environment:
+      - PX4_GZ_WORLD=room
+      # Parameters from the gz_rover_differential airframe, body from platforms/.
+      - PX4_SYS_AUTOSTART=50000
+      - PX4_SIM_MODEL=gz_rover_differential_lidar_px4
+      # Resolved by the world's gz server, where platforms/ is mounted.
+      - PX4_GZ_MODELS=/sim/platforms
+      - PX4_GZ_MODEL_POSE=0,0,0.2
+      # PX4 otherwise locks the GUI camera onto the rover it spawns.
+      - PX4_GZ_NO_FOLLOW=1

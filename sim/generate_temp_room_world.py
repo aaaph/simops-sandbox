@@ -269,10 +269,21 @@ with Path(a.out).open("w") as f:
     </plugin>
     <!-- IMU sensors are not rendering sensors, so Sensors above never runs them -->
     <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu"/>
+    <!-- baro, mag and GPS for PX4: a world that lists its own plugins skips server.config -->
+    <plugin filename="gz-sim-air-pressure-system" name="gz::sim::systems::AirPressure"/>
+    <plugin filename="gz-sim-magnetometer-system" name="gz::sim::systems::Magnetometer"/>
+    <plugin filename="gz-sim-navsat-system" name="gz::sim::systems::NavSat"/>
+    <spherical_coordinates>
+      <surface_model>EARTH_WGS84</surface_model>
+      <world_frame_orientation>ENU</world_frame_orientation>
+      <latitude_deg>47.397971057728974</latitude_deg>
+      <longitude_deg>8.546163739800146</longitude_deg>
+      <elevation>0</elevation>
+    </spherical_coordinates>
 
     {gui_section()}
 
-    <!-- arrow keys -> /cmd_vel -->
+    <!-- arrow keys -> /cmd_vel; space or s -> stop. Codes are Qt keys, as KeyPublisher sends them -->
     <plugin filename="gz-sim-triggered-publisher-system"
             name="gz::sim::systems::TriggeredPublisher">
       <input type="gz.msgs.Int32" topic="/keyboard/keypress">
@@ -313,6 +324,15 @@ with Path(a.out).open("w") as f:
             name="gz::sim::systems::TriggeredPublisher">
       <input type="gz.msgs.Int32" topic="/keyboard/keypress">
         <match field="data">32</match>
+      </input>
+      <output type="gz.msgs.Twist" topic="/cmd_vel">
+        linear: {{x: 0.0}}, angular: {{z: 0.0}}
+      </output>
+    </plugin>
+    <plugin filename="gz-sim-triggered-publisher-system"
+            name="gz::sim::systems::TriggeredPublisher">
+      <input type="gz.msgs.Int32" topic="/keyboard/keypress">
+        <match field="data">83</match>
       </input>
       <output type="gz.msgs.Twist" topic="/cmd_vel">
         linear: {{x: 0.0}}, angular: {{z: 0.0}}
