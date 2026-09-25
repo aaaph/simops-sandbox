@@ -9,7 +9,7 @@ import time
 
 import pytest
 import rclpy
-from frame_publisher import FramePublisher, quat
+from px4_companion.frame_publisher import FramePublisher, quat
 from rclpy.node import Node
 from scipy.spatial.transform import Rotation as Rot
 from tf2_msgs.msg import TFMessage

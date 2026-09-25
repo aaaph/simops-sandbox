@@ -14,3 +14,5 @@ python-version = "3.14"
 # so here: this way `ty check` is right whether it runs under `pixi run` or from
 # an editor that picked a different interpreter.
 python = ".pixi/envs/default"
+# launch/bringup.launch.py imports px4_companion from its source tree
+extra-paths = ["ros/src/px4_companion"]

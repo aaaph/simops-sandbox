@@ -1,0 +1,304 @@
+gz-transport 15.1.0 (Jetty) + two zenoh fixes that are merged upstream but not
+released for Jetty yet, cut down to stay ABI compatible with the gz-sim/gz-gui
+10 binaries built against 15.1.0 (only src/ changes; no header or class layout).
+
+1. gazebosim/gz-transport#966 (backport of #867, "Integrate Zenoh 1.8.0 - Part
+   1/2"): queryables, subscribers and liveliness tokens are torn down on a
+   detached thread, so undeclaring from inside their own callback no longer
+   deadlocks. That deadlock hangs `gz sim -g` over zenoh (#741): the GUI
+   unadvertises a service from inside that service's callback.
+   Dropped from it: the std::enable_shared_from_this bases it adds to the
+   handler classes (they change the class layout); the callbacks capture
+   `this` as in 15.1.0. Upstream makes #966 ABI neutral in #968, which does not
+   apply to gz-transport15.
+
+2. gazebosim/gz-transport#965 (backport of #961): zenoh publishers deliver to
+   other sessions only. Without it zenoh loops each message back into the
+   publishing process synchronously, on the publishing thread; PX4's gz_bridge
+   subscribes to the wheel/ESC command topic it publishes and takes the same
+   non-recursive mutex in both places, so its rate_ctrl work queue deadlocks.
+
+Not included: gz-transport#868 (Part 2/2), which fixes service replies that
+never arrive: it changes public headers and inline request code compiled into
+gz-sim. Node::Request can still wait forever; px4.Dockerfile bounds `gz service`.
+
+Build and install: infra/build-gz-transport.sh
+
+diff --git a/src/Node.cc b/src/Node.cc
+index ff150cfb..2eb85095 100644
+--- a/src/Node.cc
++++ b/src/Node.cc
+@@ -1163,8 +1163,16 @@ Node::Publisher Node::Advertise(const std::string &_topic,
+ #ifdef HAVE_ZENOH
+   else if (impl == "zenoh")
+   {
++    // Subscribers in this process are served directly by Publish(): the
++    // transport must only deliver to other sessions, otherwise every
++    // local subscriber would get each message twice (once from Publish()
++    // and once looped back by Zenoh) and SubscribeOptions::
++    // IgnoreLocalMessages() could not be honored.
++    zenoh::Session::PublisherOptions pubOpts =
++      zenoh::Session::PublisherOptions::create_default();
++    pubOpts.allowed_destination = zenoh::Locality::Z_LOCALITY_REMOTE;
+     auto zPub = this->Shared()->dataPtr->session->declare_publisher(
+-     zenoh::KeyExpr(fullyQualifiedTopic));
++      zenoh::KeyExpr(fullyQualifiedTopic), std::move(pubOpts));
+
+     std::string token = TopicUtils::CreateLivelinessToken(
+       fullyQualifiedTopic, this->Shared()->pUuid, this->NodeUuid(), "MP",
+diff --git a/src/RepHandler.cc b/src/RepHandler.cc
+index 4b5ff3f1..ec7421ab 100644
+--- a/src/RepHandler.cc
++++ b/src/RepHandler.cc
+@@ -17,6 +17,7 @@
+
+ #include <memory>
+ #include <string>
++#include <thread>
+ #include "gz/transport/config.hh"
+ #include "gz/transport/RepHandler.hh"
+ #include "gz/transport/TopicUtils.hh"
+@@ -45,7 +46,24 @@ namespace gz::transport
+     }
+
+     /// \brief Destructor.
+-    public: virtual ~IRepHandlerPrivate() = default;
++    public: virtual ~IRepHandlerPrivate()
++    {
++#ifdef HAVE_ZENOH
++      // When unregistering from within a Zenoh callback, destroying the
++      // Queryable synchronously causes a deadlock in Zenoh's wait_callbacks()
++      // because it waits for the current thread (callback worker) to finish.
++      // Move them to a detached thread so the callback can return cleanly.
++      if (this->zQueryable || this->zToken)
++      {
++        std::thread([queryable = std::move(this->zQueryable),
++                     token = std::move(this->zToken)]() mutable
++        {
++          queryable.reset();
++          token.reset();
++        }).detach();
++      }
++#endif
++    }
+
+     /// \brief Process UUID.
+     public: std::string pUuid;
+@@ -57,8 +75,10 @@ namespace gz::transport
+     public: std::string hUuid;
+
+ #ifdef HAVE_ZENOH
+-    /// \brief Zenoh queriable to receive requests.
+-    std::unique_ptr<zenoh::Queryable<void>> zQueryable;
++    /// \brief Zenoh queryable to receive requests. Persistent for
++    /// the IRepHandler's lifetime so its interest declaration on
++    /// the service keyexpr remains in effect.
++    public: std::unique_ptr<zenoh::Queryable<void>> zQueryable;
+
+     /// \brief The liveliness token.
+     public: std::unique_ptr<zenoh::LivelinessToken> zToken;
+@@ -89,14 +109,15 @@ namespace gz::transport
+     std::shared_ptr<zenoh::Session> _session,
+     const std::string &_service)
+   {
+-    auto onQuery = [this, _service](const zenoh::Query &_query)
++    IRepHandler *self = this;  // ABI: no enable_shared_from_this on 15.1.0
++    auto onQuery =
++      [self, _service](const zenoh::Query &_query)
+     {
+-      std::string output;
+       std::string input = "";
+       if (_query.get_payload())
+         input = _query.get_payload()->get().as_string();
+-
+-      if (this->RunCallback(input, output))
++      std::string output;
++      if (self->RunCallback(input, output))
+         _query.reply(_service, output);
+     };
+
+@@ -105,7 +126,7 @@ namespace gz::transport
+     zenoh::Session::QueryableOptions opts;
+     this->dataPtr->zQueryable = std::make_unique<zenoh::Queryable<void>>(
+       _session->declare_queryable(
+-        _service, onQuery, onDropQueryable, std::move(opts)));
++        _service, std::move(onQuery), onDropQueryable, std::move(opts)));
+
+     std::string token = TopicUtils::CreateLivelinessToken(
+       _service, this->dataPtr->pUuid, this->dataPtr->nUuid, "SS",
+diff --git a/src/SubscriptionHandler.cc b/src/SubscriptionHandler.cc
+index 223ca438..ff4a7295 100644
+--- a/src/SubscriptionHandler.cc
++++ b/src/SubscriptionHandler.cc
+@@ -15,6 +15,10 @@
+  *
+ */
+
++#include <memory>
++#include <string>
++#include <thread>
++
+ #include "gz/transport/config.hh"
+ #include "gz/transport/SubscriptionHandler.hh"
+ #include "gz/transport/TopicUtils.hh"
+@@ -48,7 +52,24 @@ namespace gz::transport
+     }
+
+     /// \brief Destructor.
+-    public: virtual ~SubscriptionHandlerBasePrivate() = default;
++    public: virtual ~SubscriptionHandlerBasePrivate()
++    {
++#ifdef HAVE_ZENOH
++      // When unregistering from within a Zenoh callback, destroying the
++      // Subscriber synchronously causes a deadlock in Zenoh's wait_callbacks()
++      // because it waits for the current thread (callback worker) to finish.
++      // Move them to a detached thread so the callback can return cleanly.
++      if (this->zSub || this->zToken)
++      {
++        std::thread([sub = std::move(this->zSub),
++                     token = std::move(this->zToken)]() mutable
++        {
++          sub.reset();
++          token.reset();
++        }).detach();
++      }
++#endif
++    }
+
+     /// \brief Subscribe options.
+     public: SubscribeOptions opts;
+@@ -157,37 +178,41 @@ namespace gz::transport
+     std::shared_ptr<zenoh::Session> _session,
+     const FullyQualifiedTopic &_fullyQualifiedTopic)
+   {
+-    MessageInfo msgInfo;
+-    msgInfo.SetTopic(_fullyQualifiedTopic.Topic());
+-    msgInfo.SetType(this->TypeName());
+-    auto dataHandler = [this, msgInfo](const zenoh::Sample &_sample)
++    ISubscriptionHandler *self = this;  // ABI: no enable_shared_from_this on 15.1.0
++    const std::string expectedType = this->TypeName();
++    const std::string topic = _fullyQualifiedTopic.Topic();
++
++    auto onSample =
++      [self, expectedType, topic](const zenoh::Sample &_sample)
+     {
++
+       auto attachment = _sample.get_attachment();
+-      if (attachment.has_value())
++      if (!attachment.has_value())
+       {
+-        // Same topic but different type, not interested.
+-        auto msgType = attachment->get().as_string();
+-        if (this->TypeName() != kGenericMessageType &&
+-            this->TypeName() != msgType)
+-        {
+-          return;
+-        }
+-
+-        auto output = this->CreateMsg(
+-          _sample.get_payload().as_string(), msgType);
+-        if (output)
+-          this->RunLocalCallback(*output, msgInfo);
++        std::cerr << "SubscriptionHandler: Unable to find attachment. "
++                  << "Ignoring message..." << std::endl;
++        return;
+       }
+-      else
++      auto msgType = attachment->get().as_string();
++      if (expectedType != kGenericMessageType && expectedType != msgType)
+       {
+-        std::cerr << "SubscriptionHandler::SetCallback(): Unable to find "
+-                  << "attachment. Ignoring message..." << std::endl;
++        // Same topic but different type, not interested.
++        return;
+       }
++      auto msg = self->CreateMsg(_sample.get_payload().as_string(), msgType);
++      if (!msg)
++        return;
++      MessageInfo info;
++      info.SetTopic(topic);
++      info.SetType(msgType);
++      info.SetIntraProcess(false);
++      self->RunLocalCallback(*msg, info);
+     };
+
+     this->dataPtr->zSub = std::make_unique<zenoh::Subscriber<void>>(
+       _session->declare_subscriber(
+-        *_fullyQualifiedTopic.FullTopic(), dataHandler, zenoh::closures::none));
++        *_fullyQualifiedTopic.FullTopic(), std::move(onSample),
++        zenoh::closures::none));
+
+     std::string token = TopicUtils::CreateLivelinessToken(
+       *_fullyQualifiedTopic.FullTopic(), this->ProcUuid(), this->NodeUuid(),
+@@ -253,37 +278,42 @@ namespace gz::transport
+     }
+     zenoh::KeyExpr keyexpr(*_fullyQualifiedTopic.FullTopic());
+
+-    auto dataHandler =
+-        [this, _fullyQualifiedTopic](const zenoh::Sample &_sample)
++    this->SetCallback(_cb);
++
++    const std::string topicShort = _fullyQualifiedTopic.Topic();
++    RawSubscriptionHandler *self = this;  // ABI: no enable_shared_from_this on 15.1.0
++
++    auto onSample = [self, topicShort](const zenoh::Sample &_sample)
+     {
+-      MessageInfo msgInfo;
+-      msgInfo.SetTopic(_fullyQualifiedTopic.Topic());
++
+       auto attachment = _sample.get_attachment();
+-      if (attachment.has_value())
++      if (!attachment.has_value())
+       {
+-        // Same topic but different type, not interested.
+-        auto msgType = attachment->get().as_string();
+-        if (this->TypeName() != kGenericMessageType &&
+-            this->TypeName() != msgType)
+-        {
+-          return;
+-        }
+-
+-        msgInfo.SetType(msgType);
+-        auto payload = _sample.get_payload().as_string();
+-
+-        this->RunRawCallback(payload.c_str(), payload.size(), msgInfo);
++        std::cerr << "RawSubscriptionHandler: Unable to find attachment. "
++                  << "Ignoring message..." << std::endl;
++        return;
+       }
+-      else
++      auto msgType = attachment->get().as_string();
++
++      if (self->TypeName() != kGenericMessageType &&
++          self->TypeName() != msgType)
+       {
+-        std::cerr << "RawSubscriptionHandler::SetCallback(): Unable to find "
+-                  << "attachment. Ignoring message..." << std::endl;
++        return;
+       }
++      if (!self->UpdateThrottling())
++        return;
++
++      MessageInfo msgInfo;
++      msgInfo.SetTopic(topicShort);
++      msgInfo.SetType(msgType);
++
++      auto payload = _sample.get_payload().as_string();
++      self->RunRawCallback(payload.data(), payload.size(), msgInfo);
+     };
+
+     this->dataPtr->zSub = std::make_unique<zenoh::Subscriber<void>>(
+       _session->declare_subscriber(
+-        keyexpr, dataHandler, zenoh::closures::none));
++        keyexpr, std::move(onSample), zenoh::closures::none));
+
+     std::string token = TopicUtils::CreateLivelinessToken(
+         *_fullyQualifiedTopic.FullTopic(), this->ProcUuid(), this->NodeUuid(),
+@@ -294,8 +324,6 @@ namespace gz::transport
+
+     this->dataPtr->zToken = std::make_unique<zenoh::LivelinessToken>(
+         _session->liveliness_declare_token(token));
+-
+-    this->SetCallback(std::move(_cb));
+   }
+ #endif

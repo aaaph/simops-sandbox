@@ -1,0 +1,30 @@
+# What the sim puts on the ROS 2 bus for the PX4-driven rover: the sensors PX4
+# does not read, sim time and ground truth. Odometry, IMU and the wheels belong
+# to PX4 (/fmu/*), so there is no /odom, /imu, /tf or /cmd_vel here. Nor
+# /joint_states: PX4 reads the wheel speeds itself, nothing in ROS consumes them
+# yet, and at one message per physics step (~1 kHz) it was the heaviest stream.
+- ros_topic_name: "/clock"
+  gz_topic_name: "/clock"
+  ros_type_name: "rosgraph_msgs/msg/Clock"
+  gz_type_name: "gz.msgs.Clock"
+  direction: GZ_TO_ROS
+
+- ros_topic_name: "/scan"
+  gz_topic_name: "/scan"
+  ros_type_name: "sensor_msgs/msg/LaserScan"
+  gz_type_name: "gz.msgs.LaserScan"
+  direction: GZ_TO_ROS
+
+- ros_topic_name: "/scan/points"
+  gz_topic_name: "/scan/points"
+  ros_type_name: "sensor_msgs/msg/PointCloud2"
+  gz_type_name: "gz.msgs.PointCloudPacked"
+  direction: GZ_TO_ROS
+
+# Ground truth straight from the physics engine, for evaluating PX4's EKF and
+# SLAM. Simulation only: never feed it into control or estimation.
+- ros_topic_name: "/ground_truth"
+  gz_topic_name: "/ground_truth"
+  ros_type_name: "nav_msgs/msg/Odometry"
+  gz_type_name: "gz.msgs.Odometry"
+  direction: GZ_TO_ROS
