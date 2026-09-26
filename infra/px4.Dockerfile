@@ -81,7 +81,24 @@ fi
 export PX4_GZ_STANDALONE=1
 export PX4_PARAM_ZENOH_ENABLE=1  # px4_sitl_zenoh dials the router on localhost:7447
 cd "$B/rootfs"
-exec ../bin/px4 -d
+
+# The zenoh module has no namespace option, but reads its topic list from
+# fs/zenoh/{pub,sub}.csv in the instance's working directory (rootfs/<-i>) and
+# writes its built-in defaults there only if they are missing: write the
+# defaults with every topic under /<namespace>.
+if [ -n "$PX4_ZENOH_NAMESPACE" ]; then
+	Z="${PX4_INSTANCE:-0}/fs/zenoh"
+	mkdir -p "$Z"
+	topics() {
+		sed -n "/$1/,/^;/"'s|^[[:space:]]*"/\(.*\)\\n"$|/'"$PX4_ZENOH_NAMESPACE"'/\1|p' \
+			"$B/src/modules/zenoh/default_topics.c"
+	}
+	topics default_pub_config > "$Z/pub.csv"
+	topics default_sub_config > "$Z/sub.csv"
+fi
+
+# -i: MAVLink ports and MAV_SYS_ID per robot, all PX4s share one network namespace
+exec ../bin/px4 -d -i "${PX4_INSTANCE:-0}"
 EOF
 
 CMD ["sim-px4"]

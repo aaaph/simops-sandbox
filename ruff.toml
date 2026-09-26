@@ -90,6 +90,11 @@ line-ending = "auto"
     "S603", # Every command it runs is a constant in the file, not outside input
     "S607", # `gz`, `ps` and `pixi` are looked up on PATH on purpose
 ]
+"sim/simops.py" = [
+    "T201", # A CLI reports by printing
+    "S603", # It runs docker and gz, or the command its user passed after --
+    "S607", # `docker` and `gz` are looked up on PATH on purpose
+]
 "sim/doctor.py" = [
     "T201", # A diagnostic tool reports by printing
     "S607", # `gz` and `ps` are looked up on PATH on purpose

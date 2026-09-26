@@ -1,0 +1,7 @@
+# What cannot be separated from this body: how an autopilot drives it. A scenario
+# picks the platform and the autopilot's firmware; the rest follows from here.
+autopilot:
+  px4:
+    # gz_rover_differential: the rover modules, and wheel geometry and speed limits
+    # tuned for this chassis
+    airframe: 50000

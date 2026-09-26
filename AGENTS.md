@@ -29,29 +29,65 @@ this machine run rerun too, and the rerun MCP server's own viewer must stay up.
   graph: `pixi run ros2 daemon stop`.
 - Port 7447 is taken by Docker, so `rmw_zenohd` cannot start; rmw_zenoh works peer-to-peer without it.
 
-## Docker sim: world + PX4 in containers, native macOS gz GUI over zenoh
+## Docker sim: scenarios — world + robots + PX4 in containers, native macOS gz GUI over zenoh
 
-`docker-compose.yaml`: `zenoh-router` (ROS 2 and gz-transport both go through it), `world` (gz
-Jetty server, `worlds/temp_room.sdf`), `px4` (PX4 SITL, spawns
-`platforms/rover_differential_lidar_px4` into the world) and `sim-sensors` (`ros_gz_bridge` with the
-platform's `bridge.yaml`: `/clock`, `/scan`, `/scan/points`, `/ground_truth` — the sim's stand-in
-for the sensor drivers). IMU, odometry and the wheels are PX4's `/fmu/*`. The PX4 commit is pinned
-at the top of `docker-compose.yaml`. All of them are built on the same conda-forge gz Jetty as the
+A scenario is one YAML file — world, autopilot firmware, robots (platform + pose), namespaces,
+router port — see `scenarios/rover_room.yaml`. `sim/simops.py` builds it into `build/<name>/`
+(`compose.yaml`, the merged `bridge.yaml`, the world with the robots placed in it, the platforms it
+uses) and runs it as its own compose project, with `GZ_PARTITION=<name>`:
+
+    pixi run simops up scenarios/rover_room.yaml     # returns once every robot is in the world and sim time moves
+    pixi run simops gui scenarios/rover_room.yaml    # native gz GUI, right partition and router
+    pixi run simops env scenarios/rover_room.yaml | source   # gz/ROS on the host (bash: eval "$(...)")
+    pixi run simops run scenarios/rover_room.yaml -- pytest tests/   # up, command, down whatever happens
+    pixi run simops down scenarios/rover_room.yaml
+
+**Clean up after yourself:** containers you started to check or verify something, you stop —
+`simops down`, or `simops run`, which does it for you. Leave running only what the user asked to
+keep up, and never touch containers you did not start.
+
+World: `room: {seed, size, obstacles}` generates a room with `sim/generate_temp_room_world.py`
+(same seed, same room), `file: <path>.sdf` takes a ready one. Two scenarios run side by side if
+their `name` and `router_port` differ.
+
+A platform (`platforms/<p>/`) is `model.sdf` + `bridge.yaml` + `platform.yaml`; the last holds
+what cannot be separated from the body — for now the PX4 airframe. The scenario only picks the
+firmware (`autopilot.px4.ref`), the same for every robot.
+
+**First the world, then the robots** — the principle everything here is built on. The world
+starts empty (the world file has no robots); the one-shot `spawn` service adds each robot to the
+running world under its scenario name (`/world/<w>/create`, generated `spawn.sh`), and each
+`px4-<robot>` starts only after `spawn` succeeded and attaches to its robot (`PX4_GZ_MODEL_NAME`).
+The create reply can get lost over zenoh (#868 below), so `spawn.sh` does not wait on it: it looks
+for the model in `/world/<w>/pose/info` and retries. When the world restarts, compose reruns
+`spawn` and the PX4s with it. `namespaces: true` puts every robot's topics under `/<robot>/` — `/rover1/scan`,
+`/rover1/ground_truth`, `/rover1/fmu/out/...` — even with one robot, and is required for more than
+one; `/clock` stays global. It works by rewriting the gz `<topic>`/`<odom_topic>` in a per-robot
+copy of the model (`platforms/<p>.<robot>/`) and the bridge entries, and, for PX4 (whose zenoh
+module has no namespace option), by writing its topic list `fs/zenoh/{pub,sub}.csv` with the
+prefix before it starts (`sim-px4` in `px4.Dockerfile`). TF frame ids (`odom`, `base_link`,
+`lidar_link`) are not prefixed yet.
+
+Services: `zenoh-router` (ROS 2 and gz-transport both go through it), `world` (gz Jetty server),
+`px4-<robot>` (PX4 SITL at the scenario's `ref`, instance `-i N` so the PX4s sharing one network
+namespace get their own MAVLink ports), `spawn` (above) and `sim-sensors` (`ros_gz_bridge` with the robots'
+`bridge.yaml` merged: `/clock`, `/scan`, `/scan/points`, `/ground_truth` — the sim's stand-in for
+the sensor drivers). IMU, odometry and the
+wheels are PX4's `/fmu/*`. Images: `simops-sandbox-{ros,world}` and `simops-sandbox-px4:<ref[:12]>`,
+built by compose on first use; after a Dockerfile change, `docker compose -f
+build/<name>/compose.yaml build`. All of them are built on the same conda-forge gz Jetty as the
 macOS pixi env, with gz-transport's zenoh backend, so the native macOS GUI attaches through the
-router — no noVNC:
+router — no noVNC. The same `GZ_PARTITION` is required on every side: the default is
+`<hostname>:<user>`, so the containers and the Mac never see each other without it.
 
-    docker compose up -d world px4 sim-sensors
-    GZ_PARTITION=sim GZ_TRANSPORT_IMPLEMENTATION=zenoh \
-      GZ_TRANSPORT_ZENOH_CONFIG_OVERRIDE='mode="peer";connect/endpoints=["tcp/localhost:7447"];scouting/multicast/enabled=false' \
-      pixi run gz sim -g
-
-The same `GZ_PARTITION` is required on every side: the default is `<hostname>:<user>`, so the
-containers and the Mac never see each other without it.
+PX4 version: each `ref` is its own image and a full PX4 build (~10 min); switching back to a
+built `ref` costs nothing. There is no `v1.17.0` tag yet (latest `v1.17.0-rc2`, 2026-09-26); the
+pinned commit is `main` with the Jetty build fix #28843 — check a release has it before pinning.
 
 **Previous variant, gz Harmonic + GUI over noVNC,** is in commit `fb24cde`: `infra/world.Dockerfile`
 (targets `world` and `gui`), `infra/px4.Dockerfile` (PX4 built with PX4's `ubuntu.sh`, Harmonic from
 the OSRF apt repo, gz-transport over zeromq) and the `world`, `gui`, `px4` services of
-`docker-compose.yaml`. It needs nothing on the Mac but a browser (http://localhost:6080/vnc.html,
+the old hand-written `docker-compose.yaml`. It needs nothing on the Mac but a browser (http://localhost:6080/vnc.html,
 router publishing `127.0.0.1:6080`), at the cost of software rendering (~2 cores, capped). Bring it
 back with `git show fb24cde:<path>`; gz-transport stays inside the shared network namespace
 there, so it has none of the zenoh issues below.
@@ -72,6 +108,8 @@ details), cut down to keep the ABI of the prebuilt gz-sim/gz-gui/PX4 binaries:
   library, keeping the conda one as `*.orig`. It refuses to run on any other gz-transport version.
   `world.Dockerfile` and `px4.Dockerfile` run the same script against their own conda env.
 - **Revert (macOS):** `infra/build-gz-transport.sh --revert`, or `pixi reinstall`.
+- The patch's blank context lines are whitespace-significant: pre-commit's whitespace hooks skip
+  `*.patch`, and an edited patch must pass `git apply --check` on a 15.1.0 checkout.
 - `pixi install`/`update` that touches gz-transport puts the conda library back; re-run the
   script if the GUI hangs again.
 - **To try another PR the same way:** clone the tag matching the installed version, `git fetch
@@ -97,7 +135,22 @@ a script on another MAVLink link are ignored.
 
 If `zenoh-router` is restarted outside compose (`docker restart`, or `restart: always` after a
 crash), every container in its network namespace is left without network:
-`docker compose up -d --force-recreate <service>`.
+`docker compose -p <name> up -d --force-recreate <service>`.
+
+## Planned: simops as a tool
+
+Direction: a generic tool, not robot code — a Python package (library, `simops` CLI, pytest
+helper) taken as a dev-dependency by robot repos, the rover here staying as the example. Done:
+scenario format, `platform.yaml`, several robots with optional namespaces, bundle,
+`up/down/run/env/gui` (`sim/simops.py`). Next, in this order, each when
+something needs it:
+- `simops.testing.sim_session(scenario)` — pytest fixture over up/down, per-session name and port
+  so tests run in parallel; robot helpers (arm, drive, ground truth) on top.
+- readiness beyond "in the world": PX4 heartbeat and preflight passed, so `up` means "can arm".
+- `show` (services, RTF, PX4 mode, topic rates), `reset`; TF frame prefixes with namespaces.
+- `--docker-host ssh://...` for a sim on another machine; the bundle already runs anywhere with
+  Docker once its build contexts are images in a registry.
+- a single-container target for the cloud (Modal), router reached through a tunnel.
 
 ## Checks
 

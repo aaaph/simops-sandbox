@@ -28,6 +28,8 @@ rerun_bridge = "python sim/rerun_bridge.py --ros-args -p use_sim_time:=true"
 up = "python sim/stack.py up"
 down = "python sim/stack.py down"
 doctor = "python sim/doctor.py"
+# scenarios in Docker: world + robot + autopilot from one YAML, see sim/simops.py
+simops = "python sim/simops.py"
 # PX4 SITL against this env's gz (Jetty); make px4_sitl could pick Homebrew's Harmonic.
 # PYTHONPATH is dropped: ROS puts empy 4 on it, PX4's generators need empy 3 from its .venv.
 px4-build = "env -u PYTHONPATH cmake -S $PX4_DIR -B $PX4_DIR/build/px4_sitl_pixi -G Ninja -DCONFIG=px4_sitl_default -DCMAKE_PREFIX_PATH=$CONDA_PREFIX -DPYTHON_EXECUTABLE=$PX4_DIR/.venv/bin/python && env -u PYTHONPATH cmake --build $PX4_DIR/build/px4_sitl_pixi"

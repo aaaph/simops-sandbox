@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # ROS 2 Lyrical from robostack, one image for the stack's ROS side (each
-# service picks its command in docker-compose.yaml):
+# service picks its command in the compose file sim/simops.py generates):
 #   zenoh-router  rmw_zenohd, the router every ROS node and gz-transport peer
 #                 connects through; same zenoh-c as the macOS pixi env
 #   sim-sensors   ros_gz_bridge: the sim's stand-in for the rover's sensor

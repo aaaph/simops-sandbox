@@ -25,7 +25,7 @@ gz-sim. Node::Request can still wait forever; px4.Dockerfile bounds `gz service`
 Build and install: infra/build-gz-transport.sh
 
 diff --git a/src/Node.cc b/src/Node.cc
-index ff150cfb..2eb85095 100644
+index ff150cf..2eb8509 100644
 --- a/src/Node.cc
 +++ b/src/Node.cc
 @@ -1163,8 +1163,16 @@ Node::Publisher Node::Advertise(const std::string &_topic,
@@ -43,15 +43,15 @@ index ff150cfb..2eb85095 100644
      auto zPub = this->Shared()->dataPtr->session->declare_publisher(
 -     zenoh::KeyExpr(fullyQualifiedTopic));
 +      zenoh::KeyExpr(fullyQualifiedTopic), std::move(pubOpts));
-
+ 
      std::string token = TopicUtils::CreateLivelinessToken(
        fullyQualifiedTopic, this->Shared()->pUuid, this->NodeUuid(), "MP",
 diff --git a/src/RepHandler.cc b/src/RepHandler.cc
-index 4b5ff3f1..ec7421ab 100644
+index 4b5ff3f..ec7421a 100644
 --- a/src/RepHandler.cc
 +++ b/src/RepHandler.cc
 @@ -17,6 +17,7 @@
-
+ 
  #include <memory>
  #include <string>
 +#include <thread>
@@ -60,7 +60,7 @@ index 4b5ff3f1..ec7421ab 100644
  #include "gz/transport/TopicUtils.hh"
 @@ -45,7 +46,24 @@ namespace gz::transport
      }
-
+ 
      /// \brief Destructor.
 -    public: virtual ~IRepHandlerPrivate() = default;
 +    public: virtual ~IRepHandlerPrivate()
@@ -81,12 +81,12 @@ index 4b5ff3f1..ec7421ab 100644
 +      }
 +#endif
 +    }
-
+ 
      /// \brief Process UUID.
      public: std::string pUuid;
 @@ -57,8 +75,10 @@ namespace gz::transport
      public: std::string hUuid;
-
+ 
  #ifdef HAVE_ZENOH
 -    /// \brief Zenoh queriable to receive requests.
 -    std::unique_ptr<zenoh::Queryable<void>> zQueryable;
@@ -94,7 +94,7 @@ index 4b5ff3f1..ec7421ab 100644
 +    /// the IRepHandler's lifetime so its interest declaration on
 +    /// the service keyexpr remains in effect.
 +    public: std::unique_ptr<zenoh::Queryable<void>> zQueryable;
-
+ 
      /// \brief The liveliness token.
      public: std::unique_ptr<zenoh::LivelinessToken> zToken;
 @@ -89,14 +109,15 @@ namespace gz::transport
@@ -116,24 +116,24 @@ index 4b5ff3f1..ec7421ab 100644
 +      if (self->RunCallback(input, output))
          _query.reply(_service, output);
      };
-
+ 
 @@ -105,7 +126,7 @@ namespace gz::transport
      zenoh::Session::QueryableOptions opts;
      this->dataPtr->zQueryable = std::make_unique<zenoh::Queryable<void>>(
        _session->declare_queryable(
 -        _service, onQuery, onDropQueryable, std::move(opts)));
 +        _service, std::move(onQuery), onDropQueryable, std::move(opts)));
-
+ 
      std::string token = TopicUtils::CreateLivelinessToken(
        _service, this->dataPtr->pUuid, this->dataPtr->nUuid, "SS",
 diff --git a/src/SubscriptionHandler.cc b/src/SubscriptionHandler.cc
-index 223ca438..ff4a7295 100644
+index 223ca43..ff4a729 100644
 --- a/src/SubscriptionHandler.cc
 +++ b/src/SubscriptionHandler.cc
 @@ -15,6 +15,10 @@
   *
  */
-
+ 
 +#include <memory>
 +#include <string>
 +#include <thread>
@@ -143,7 +143,7 @@ index 223ca438..ff4a7295 100644
  #include "gz/transport/TopicUtils.hh"
 @@ -48,7 +52,24 @@ namespace gz::transport
      }
-
+ 
      /// \brief Destructor.
 -    public: virtual ~SubscriptionHandlerBasePrivate() = default;
 +    public: virtual ~SubscriptionHandlerBasePrivate()
@@ -164,7 +164,7 @@ index 223ca438..ff4a7295 100644
 +      }
 +#endif
 +    }
-
+ 
      /// \brief Subscribe options.
      public: SubscribeOptions opts;
 @@ -157,37 +178,41 @@ namespace gz::transport
@@ -221,19 +221,19 @@ index 223ca438..ff4a7295 100644
 +      info.SetIntraProcess(false);
 +      self->RunLocalCallback(*msg, info);
      };
-
+ 
      this->dataPtr->zSub = std::make_unique<zenoh::Subscriber<void>>(
        _session->declare_subscriber(
 -        *_fullyQualifiedTopic.FullTopic(), dataHandler, zenoh::closures::none));
 +        *_fullyQualifiedTopic.FullTopic(), std::move(onSample),
 +        zenoh::closures::none));
-
+ 
      std::string token = TopicUtils::CreateLivelinessToken(
        *_fullyQualifiedTopic.FullTopic(), this->ProcUuid(), this->NodeUuid(),
 @@ -253,37 +278,42 @@ namespace gz::transport
      }
      zenoh::KeyExpr keyexpr(*_fullyQualifiedTopic.FullTopic());
-
+ 
 -    auto dataHandler =
 -        [this, _fullyQualifiedTopic](const zenoh::Sample &_sample)
 +    this->SetCallback(_cb);
@@ -286,19 +286,20 @@ index 223ca438..ff4a7295 100644
 +      auto payload = _sample.get_payload().as_string();
 +      self->RunRawCallback(payload.data(), payload.size(), msgInfo);
      };
-
+ 
      this->dataPtr->zSub = std::make_unique<zenoh::Subscriber<void>>(
        _session->declare_subscriber(
 -        keyexpr, dataHandler, zenoh::closures::none));
 +        keyexpr, std::move(onSample), zenoh::closures::none));
-
+ 
      std::string token = TopicUtils::CreateLivelinessToken(
          *_fullyQualifiedTopic.FullTopic(), this->ProcUuid(), this->NodeUuid(),
 @@ -294,8 +324,6 @@ namespace gz::transport
-
+ 
      this->dataPtr->zToken = std::make_unique<zenoh::LivelinessToken>(
          _session->liveliness_declare_token(token));
 -
 -    this->SetCallback(std::move(_cb));
    }
  #endif
+ 
