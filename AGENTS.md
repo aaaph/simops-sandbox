@@ -48,18 +48,6 @@ router — no noVNC:
 The same `GZ_PARTITION` is required on every side: the default is `<hostname>:<user>`, so the
 containers and the Mac never see each other without it.
 
-**Companion software** — what runs on the rover's Pi 5, in the sim as on the rover, so nothing
-simulation-specific in it. A platform is a ROS package in `platforms/<robot>/` (model, bridge.yaml,
-`launch/companion.launch.py`; its own nodes too if nobody else needs them); nodes shared by every
-PX4 vehicle live in `ros/src/px4_companion` (`px4_odometry`: PX4's EKF on `/odom` and tf
-`odom -> base_link`; `frame_publisher`: the sensor frames read from `model.sdf`).
-`infra/companion.Dockerfile` builds them with `px4_msgs` from the PX4 commit — use the one pinned
-in `docker-compose.yaml`, or the `/fmu` topics silently stop matching. It is not in compose for now:
-
-    docker build -f infra/companion.Dockerfile --build-arg PX4_REF=<sha from docker-compose.yaml> -t simops-sandbox-companion .
-    docker run --rm --network container:zenoh-router -e PLATFORM=rover_differential_lidar_px4 \
-      -e ZENOH_CONFIG_OVERRIDE='mode="client";connect/endpoints=["tcp/localhost:7447"]' simops-sandbox-companion
-
 **Previous variant, gz Harmonic + GUI over noVNC,** is in commit `fb24cde`: `infra/world.Dockerfile`
 (targets `world` and `gui`), `infra/px4.Dockerfile` (PX4 built with PX4's `ubuntu.sh`, Harmonic from
 the OSRF apt repo, gz-transport over zeromq) and the `world`, `gui`, `px4` services of

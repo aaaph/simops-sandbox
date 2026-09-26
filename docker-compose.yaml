@@ -1,7 +1,6 @@
-# The PX4 commit the firmware (px4) is built at. The companion's px4_msgs must
-# come from the same commit — their RIHS01 type hashes are part of the zenoh
-# key, so any drift silently cuts the /fmu topics: build infra/companion.Dockerfile
-# (not in this file) with the same PX4_REF when you bump it.
+# The PX4 commit the firmware (px4) is built at. Whatever speaks /fmu/* must use
+# px4_msgs from the same commit: the RIHS01 type hashes are part of the zenoh
+# key, so any drift silently cuts the topics.
 x-px4-source: &px4-source
   PX4_REPO: https://github.com/PX4/PX4-Autopilot.git
   # 2026-09-25, fix(simulation): cast gz airspeed temperature to double (#28843)
@@ -11,7 +10,8 @@ services:
   zenoh-router:
     build:
       context: .
-      dockerfile: infra/ros2.Dockerfile
+      dockerfile: infra/ros.Dockerfile
+    image: simops-sandbox-ros
     container_name: zenoh-router
     restart: always
     ports:
@@ -21,25 +21,7 @@ services:
       # Connects (client address, peer/client), sessions opened and closed;
       # everything else at info. docker logs -f zenoh-router
       - RUST_LOG=zenoh=info,zenoh_link_tcp::unicast=debug,zenoh_transport::unicast::manager=debug,zenoh::net::routing::dispatcher::face=debug
-    command: ros2 run rmw_zenoh_cpp rmw_zenohd
-
-  m1-heartbeat:
-    build:
-      context: .
-      dockerfile: infra/ros2.Dockerfile
-    container_name: router-heartbeat
-    restart: always
-    depends_on:
-      - zenoh-router
-    environment:
-      - ZENOH_CONFIG_OVERRIDE=mode="client";connect/endpoints=["tcp/zenoh-router:7447"]
-    logging:
-      driver: json-file
-      options:
-        max-size: "1m"
-        max-file: "1"
-    command: >
-      ros2 topic pub /m1_heartbeat std_msgs/msg/Int32 "{data: 1}" --rate 1
+    command: zenoh-router
 
   # gz Jetty server with the room (pixi run world), gz-transport over zenoh:
   # the macOS GUI and PX4 attach through the router. Robots come with PX4.
@@ -99,11 +81,11 @@ services:
 
   # The sim's stand-in for the rover's sensor drivers: ros_gz_bridge with the
   # platform's bridge.yaml puts the lidar, /clock and ground truth on ROS 2.
-  # The companion software (ros/src, platforms/<robot>/launch) is not run here.
   sim-sensors:
     build:
       context: .
-      dockerfile: infra/sim-sensors.Dockerfile
+      dockerfile: infra/ros.Dockerfile
+    image: simops-sandbox-ros
     container_name: sim-sensors
     network_mode: service:zenoh-router
     depends_on:
@@ -123,3 +105,4 @@ services:
       - ZENOH_CONFIG_OVERRIDE=mode="client";connect/endpoints=["tcp/localhost:7447"]
     volumes:
       - ./platforms:/sim/platforms:ro
+    command: sim-sensors

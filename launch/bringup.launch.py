@@ -11,8 +11,8 @@ from /robot_description). Its bridge config is platforms/<name>/bridge.yaml if
 present, otherwise sim/bridge_fallback.yaml, which is /clock and a warning.
 """
 
-import sys
 import time
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import launch.logging
@@ -30,11 +30,23 @@ from launch_ros.parameter_descriptions import ParameterValue
 from launch import LaunchContext, LaunchDescription
 
 ROOT = Path(__file__).resolve().parent.parent
-# frame_publisher and the SDF frame reader live in the companion package; the
-# native stack runs them from the source tree, without building the package.
-COMPANION = ROOT / "ros" / "src" / "px4_companion"
-sys.path.insert(0, str(COMPANION))
-from px4_companion.sdf_frames import sensor_frames  # noqa: E402
+
+
+def sensor_frames(sdf: Path) -> list[tuple[str, list[str]]]:
+    """base_link -> <link> for every SDF link that carries a sensor.
+
+    Read from the model rather than restated in a URDF, so the frames cannot
+    drift away from the geometry Gazebo actually simulates.
+    """
+    out = []
+    for link in ET.parse(sdf).getroot().iter("link"):
+        name, pose = link.get("name"), link.find("pose")
+        if name is None or link.find("sensor") is None or pose is None:
+            continue
+        if pose.get("relative_to") != "base_link":
+            continue
+        out.append((name, (pose.text or "0 0 0 0 0 0").split()))
+    return out
 
 
 def platform_actions(context: LaunchContext) -> list:
@@ -111,7 +123,7 @@ def platform_actions(context: LaunchContext) -> list:
     if frames:
         actions.append(
             Node(
-                executable=str(COMPANION / "px4_companion" / "frame_publisher.py"),
+                executable=str(ROOT / "sim" / "frame_publisher.py"),
                 name="frame_publisher",
                 parameters=[
                     {"parent": "base_link", "frames": [f"{n} " + " ".join(v) for n, v in frames]},

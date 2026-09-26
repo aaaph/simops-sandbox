@@ -3,7 +3,7 @@
 # through the zenoh router over TCP instead of multicast, so a native macOS
 # `gz sim -g` can attach across Docker Desktop's NAT. Same conda-forge build
 # (gz-sim 10.5, zenoh-c 1.9) as the macOS pixi env.
-FROM ghcr.io/prefix-dev/pixi:latest
+FROM ghcr.io/prefix-dev/pixi:0.81.0
 
 WORKDIR /opt/gz
 RUN pixi init --platform linux-aarch64 --platform linux-64 \
@@ -40,4 +40,5 @@ COPY --chmod=755 <<'EOF' /usr/local/bin/sim-world
 . /opt/gz/activate.sh
 exec gz sim -s -r --headless-rendering "/sim/worlds/${SIM_WORLD:?set SIM_WORLD to a file in worlds/, without .sdf}.sdf"
 EOF
+
 CMD ["sim-world"]

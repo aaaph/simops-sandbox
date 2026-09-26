@@ -11,7 +11,7 @@ ARG PX4_REPO PX4_REF
 # .git stays: the PX4 build runs git describe and checks its submodules.
 ADD --keep-git-dir=true ${PX4_REPO}#${PX4_REF} /px4
 
-FROM ghcr.io/prefix-dev/pixi:latest
+FROM ghcr.io/prefix-dev/pixi:0.81.0
 
 # PX4 builds its idlc host tool with a hardcoded /usr/bin/gcc behind ccache
 # (msg/CMakeLists.txt); PX4 itself builds with the conda toolchain below.
@@ -26,7 +26,7 @@ RUN apt-get update \
 WORKDIR /opt/gz
 RUN pixi init --platform linux-aarch64 --platform linux-64 \
     && pixi add "gz-sim=10.5.*" gz-tools cmake ninja make cxx-compiler git "python=3.12" pip \
-        "libopencv=4.13" pkg-config \
+    "libopencv=4.13" pkg-config \
     && pixi shell-hook > /opt/gz/activate.sh \
     && pixi clean cache --yes
 COPY --from=px4-src /px4/Tools/setup/requirements.txt /tmp/px4-requirements.txt
@@ -36,7 +36,7 @@ RUN . /opt/gz/activate.sh \
 COPY --from=px4-src /px4 /px4
 RUN . /opt/gz/activate.sh \
     && cmake -S /px4 -B /px4/build/px4_sitl_zenoh -G Ninja \
-        -DCONFIG=px4_sitl_zenoh -DCMAKE_PREFIX_PATH=$CONDA_PREFIX \
+    -DCONFIG=px4_sitl_zenoh -DCMAKE_PREFIX_PATH=$CONDA_PREFIX \
     && cmake --build /px4/build/px4_sitl_zenoh
 
 # gz-transport 15.1.0 with the zenoh fixes not yet released for Jetty; see the
@@ -83,4 +83,5 @@ export PX4_PARAM_ZENOH_ENABLE=1  # px4_sitl_zenoh dials the router on localhost:
 cd "$B/rootfs"
 exec ../bin/px4 -d
 EOF
+
 CMD ["sim-px4"]
