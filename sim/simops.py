@@ -8,15 +8,16 @@ bridge.yaml, the world and the platforms -- that plain `docker compose up` runs 
 `up` builds it, starts it and returns only once every agent is in the world and the
 physics moves; if it cannot get there, it prints the log tail and leaves nothing running.
 `run` does up, runs a command against the sim, and always tears it down. Every scenario
-is its own compose project and GZ_PARTITION.
+is its own compose project and GZ_PARTITION, driven through testcontainers' DockerCompose.
 
+\b
     pixi run simops up scenarios/rover_room.yaml
     pixi run simops run scenarios/rover_room.yaml -- pytest tests/
     pixi run simops env scenarios/rover_room.yaml | source   # fish; bash: eval "$(...)"
     pixi run simops down scenarios/rover_room.yaml
-"""
+"""  # noqa: D301 -- `\b` keeps click from rewrapping the examples
 
-import argparse
+import logging
 import os
 import re
 import shutil
@@ -25,11 +26,18 @@ import sys
 import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from subprocess import CalledProcessError
+from typing import Annotated
 
+import typer
 import yaml
 from scipy.spatial.transform import Rotation
+from testcontainers.compose import DockerCompose
 
 ROOT = Path(__file__).resolve().parent.parent
+# testcontainers logs every failed compose call at ERROR -- a readiness poll while the world boots
+# included; simops prints the failures that matter itself
+logging.getLogger("testcontainers").setLevel(logging.CRITICAL)
 
 
 def load(path: Path) -> dict:
@@ -259,21 +267,32 @@ def build(sc: dict) -> dict:
     return spec
 
 
-def docker_compose(sc: dict, *args: str, capture: bool = False) -> subprocess.CompletedProcess:
-    """`docker compose` on the scenario's bundle and project."""
+def project(sc: dict) -> DockerCompose:
+    """Open the scenario's bundle as a compose project (its name is set in compose.yaml)."""
     bundle = ROOT / "build" / sc["name"]
-    return subprocess.run(
-        ["docker", "compose", "-f", bundle / "compose.yaml", "-p", sc["name"], *args],
-        capture_output=capture,
-        text=True,
-        check=False,
-    )
+    return DockerCompose(bundle, compose_file_name=str(bundle / "compose.yaml"), wait=True)
+
+
+def log_tail(sc: dict, lines: int = 15) -> None:
+    """Print the last lines each service logged."""
+    try:
+        out, err = project(sc).get_logs()
+    except CalledProcessError:
+        return
+    tails: dict[str, list[str]] = {}
+    for line in (out + err).splitlines():
+        tails.setdefault(line.split(" | ", 1)[0].strip(), []).append(line)
+    for tail in tails.values():
+        print("\n".join(tail[-lines:]))
 
 
 def pose_stamp(sc: dict, world: str, agents: list[str]) -> float | None:
     """Sim time of one pose message that has every agent in it, or None."""
     echo = f". /opt/gz/activate.sh && timeout 10 gz topic -e -t /world/{world}/pose/info -n 1"
-    out = docker_compose(sc, "exec", "-T", "world", "sh", "-c", echo, capture=True).stdout
+    try:
+        out, _, _ = project(sc).exec_in_container(["sh", "-c", echo], "world")
+    except CalledProcessError:  # no pose message within the timeout: the world is not up yet
+        return None
     if not all(f'name: "{agent}"' in out for agent in agents):
         return None
     sec, nsec = re.search(r"sec: (\d+)", out), re.search(r"nsec: (\d+)", out)
@@ -306,14 +325,19 @@ def host_env(sc: dict) -> dict[str, str]:
 def up(sc: dict, timeout: float) -> int:
     """Build and start the scenario, wait until the agents are in a running sim; on failure leave nothing."""
     spec = build(sc)
-    if docker_compose(sc, "up", "-d").returncode:
+    print(f"starting {sc['name']} (images are built on first use; a PX4 build takes ~10 min)", flush=True)
+    try:
+        project(sc).start()  # up --wait: every service runs, `spawn` exited 0
+    except CalledProcessError as e:
+        print(e.stderr.decode(errors="ignore").strip(), "\nlast log lines:")
+        log_tail(sc)
         down(sc)
         return 1
     deadline = time.monotonic() + timeout
     while not ready(sc, spec):
         if time.monotonic() > deadline:
             print(f"agents not in the world after {timeout:.0f} s; last log lines:")
-            docker_compose(sc, "logs", "--tail", "15")
+            log_tail(sc)
             down(sc)
             return 1
         time.sleep(3)
@@ -323,7 +347,10 @@ def up(sc: dict, timeout: float) -> int:
 
 def down(sc: dict) -> int:
     """Stop and remove the scenario's containers."""
-    return docker_compose(sc, "down", "--remove-orphans").returncode
+    # DockerCompose.stop() leaves orphans: services dropped from a rebuilt bundle must go too
+    return subprocess.run(
+        [*project(sc).docker_compose_command(), "down", "--remove-orphans"], check=False
+    ).returncode
 
 
 def run(sc: dict, timeout: float, command: list[str]) -> int:
@@ -336,44 +363,50 @@ def run(sc: dict, timeout: float, command: list[str]) -> int:
         down(sc)
 
 
-def main() -> int:
-    """Parse the command and run it."""
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    sub = parser.add_subparsers(dest="cmd", required=True)
-    for cmd, text in [
-        ("build", "write the bundle to build/<name>/"),
-        ("up", "start and wait until the agents are in the world"),
-        ("down", "stop"),
-        ("env", "print exports for gz and ROS on the host"),
-        ("gui", "native gz GUI attached to the running scenario"),
-        ("run", "up, run the command after --, down"),
-    ]:
-        p = sub.add_parser(cmd, help=text)
-        p.add_argument("scenario", type=Path)
-        if cmd in ("up", "run"):
-            p.add_argument("--timeout", type=float, default=300, help="seconds to wait for the agents")
-    # everything after `--` is the command for `run`, whatever flags it has
-    argv = sys.argv[1:]
-    split = argv.index("--") if "--" in argv else len(argv)
-    args = parser.parse_args(argv[:split])
-    command = argv[split + 1 :]
-    sc = load(args.scenario)
+app = typer.Typer(help=__doc__, no_args_is_help=True, add_completion=False, rich_markup_mode=None)
+Scenario = Annotated[Path, typer.Argument(help="scenario YAML file")]
+Timeout = Annotated[float, typer.Option(help="seconds to wait for the agents")]
 
-    if args.cmd == "run":
-        return run(sc, args.timeout, command)
-    if args.cmd == "up":
-        return up(sc, args.timeout)
-    if args.cmd == "env":
-        print("\n".join(f"export {k}='{v}'" for k, v in host_env(sc).items()))
-        return 0
-    if args.cmd == "gui":
-        return subprocess.run(["gz", "sim", "-g"], env=os.environ | host_env(sc), check=False).returncode
-    if args.cmd == "build":
-        build(sc)
-        print(ROOT / "build" / sc["name"])
-        return 0
-    return down(sc)
+
+@app.command("build")
+def build_cmd(scenario: Scenario) -> None:
+    """Write the bundle to build/<name>/."""
+    sc = load(scenario)
+    build(sc)
+    print(ROOT / "build" / sc["name"])
+
+
+@app.command("up")
+def up_cmd(scenario: Scenario, timeout: Timeout = 300) -> None:
+    """Start and wait until the agents are in the world."""
+    raise typer.Exit(up(load(scenario), timeout))
+
+
+@app.command("down")
+def down_cmd(scenario: Scenario) -> None:
+    """Stop."""
+    raise typer.Exit(down(load(scenario)))
+
+
+@app.command("env")
+def env_cmd(scenario: Scenario) -> None:
+    """Print exports for gz and ROS on the host."""
+    print("\n".join(f"export {k}='{v}'" for k, v in host_env(load(scenario)).items()))
+
+
+@app.command("gui")
+def gui_cmd(scenario: Scenario) -> None:
+    """Native gz GUI attached to the running scenario."""
+    env = os.environ | host_env(load(scenario))
+    raise typer.Exit(subprocess.run(["gz", "sim", "-g"], env=env, check=False).returncode)
+
+
+# the command after `--` goes through untouched, whatever flags it has
+@app.command("run", context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
+def run_cmd(ctx: typer.Context, scenario: Scenario, timeout: Timeout = 300) -> None:
+    """Up, run the command after --, down."""
+    raise typer.Exit(run(load(scenario), timeout, ctx.args))
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    app()

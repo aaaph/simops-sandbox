@@ -73,8 +73,10 @@ testcontainers 4.14): the CLI needs them at runtime, not only tests.
 - [`capture_output=True` hides compose's progress, including the ~10 min first build of a PX4
   image] → `up` prints one line before `start()` saying images are built on first use and can
   take minutes; on failure the captured output is printed.
-- [testcontainers' logger prints the failed command's stdout/stderr at ERROR] → acceptable, it
-  is the same information simops prints; not silenced.
+- [testcontainers' logger prints every failed command's stdout/stderr at ERROR — the failed
+  `up` twice (its log and simops' message), and each readiness poll that times out while the
+  world boots] → simops sets the `testcontainers` logger to CRITICAL and prints the failures that
+  matter itself (found during apply).
 - [A heavier dependency (docker-py comes with it) for ~36 lines of calls] → accepted by the
   user as the price for not maintaining the plumbing.
 - [Typer's help and error formatting differs from argparse] → not part of any spec.

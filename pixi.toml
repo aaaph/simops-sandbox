@@ -53,6 +53,8 @@ ty = ">=0.0.78,<0.0.79"
 pytest = ">=9.1.1,<10"
 scipy = ">=1.18.0,<2"
 pre-commit = ">=4.6.2,<5"
+typer = ">=0.27.2,<0.28"
+testcontainers = ">=4.14.1,<5"
 
 [pypi-dependencies]
 rerun-sdk = "==0.36.*"

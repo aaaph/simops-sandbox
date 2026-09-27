@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 import yaml
-from simops import build, docker_compose, down, host_env, load, pose_stamp, ready, run, up
+from simops import build, down, host_env, load, pose_stamp, project, ready, run, up
 
 pytestmark = pytest.mark.docker
 
@@ -50,7 +50,8 @@ def containers(sc: dict) -> list[str]:
 
 def started_at(sc: dict, service: str) -> str:
     """When the service's container last started."""
-    cid = docker_compose(sc, "ps", "-aq", service, capture=True).stdout.strip()
+    cid = project(sc).get_container(service, include_all=True).ID
+    assert cid, f"no container for {service}"
     return subprocess.run(
         ["docker", "inspect", "-f", "{{.State.StartedAt}}", cid], capture_output=True, text=True, check=True
     ).stdout.strip()
@@ -131,7 +132,7 @@ def test_world_restart_brings_agents_back(tmp_path, cleanup):
     cleanup.append(sc)
     assert up(sc, TIMEOUT) == 0
     px4_before = started_at(sc, "px4-rover1")
-    assert docker_compose(sc, "restart", "world").returncode == 0
+    assert subprocess.run([*project(sc).docker_compose_command(), "restart", "world"], check=False).returncode == 0
     deadline = time.monotonic() + TIMEOUT
     while pose_stamp(sc, "room", ["rover1"]) is None:
         assert time.monotonic() < deadline, "rover1 not back in the world"

@@ -53,6 +53,9 @@ writes), `sim-lifecycle` (`up`/`down`/`run`), `agent-spawn` (first the world, th
 `pixi run test` (unit, seconds) and `pixi run pytest -m docker` (starts scenarios, minutes).
 
 How it is done, beyond the specs:
+- The CLI is Typer; the compose project is driven through testcontainers' `DockerCompose`
+  (`up --wait`, exec, logs), except `down`, which adds `--remove-orphans` that `stop()` lacks.
+  testcontainers' logger is silenced: simops prints the failures itself.
 - A platform (`platforms/<p>/`) is `model.sdf` + `bridge.yaml` + `agent.yaml`; the last holds
   what cannot be separated from the body — for now the PX4 airframe.
 - Spawning goes through `/world/<w>/create` in the generated `spawn.sh`. The create reply can get
