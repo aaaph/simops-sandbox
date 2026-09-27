@@ -8,6 +8,7 @@ collides with a rover_room someone keeps up nor with another test.
 import os
 import shutil
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -99,11 +100,13 @@ def test_failed_up_leaves_nothing(tmp_path, cleanup):
     broken = tmp_path / "broken_platform"
     shutil.copytree(ROOT / "platforms/rover_differential_lidar_px4", broken)
     (broken / "model.sdf").write_text('<sdf version="1.9">not a model</sdf>')
+    world = tmp_path / "room.sdf"  # a ready-made world: the generator cannot measure the broken model
+    subprocess.run([sys.executable, ROOT / "sim/generate_temp_room_world.py", "-o", world], check=True, cwd=ROOT)
     sc = yaml.safe_load(SCENARIO.read_text())
     sc |= {
         "name": "t_timeout",
         "network": {"router_port": 7462},
-        "world": {"file": str(ROOT / "worlds/temp_room.sdf")},
+        "world": {"file": str(world)},
         "agents": {"rover1": {"platform": str(broken), "pose": [0, 0, 0.2]}},
     }
     path = tmp_path / "t_timeout.yaml"

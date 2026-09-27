@@ -18,6 +18,7 @@ is its own compose project and GZ_PARTITION, driven through testcontainers' Dock
 """  # noqa: D301 -- `\b` keeps click from rewrapping the examples
 
 import logging
+import math
 import os
 import re
 import shutil
@@ -31,7 +32,6 @@ from typing import Annotated
 
 import typer
 import yaml
-from scipy.spatial.transform import Rotation
 from testcontainers.compose import DockerCompose
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -187,10 +187,23 @@ until timeout 10 gz topic -e -t "/world/$W/pose/info" -n 1 >/dev/null 2>&1; do s
 """
 
 
+def quaternion(roll: float, pitch: float, yaw: float) -> tuple[float, float, float, float]:
+    """Turn ROS roll-pitch-yaw (extrinsic x, then y, then z) into a quaternion (x, y, z, w)."""
+    cr, sr = math.cos(roll / 2), math.sin(roll / 2)
+    cp, sp = math.cos(pitch / 2), math.sin(pitch / 2)
+    cy, sy = math.cos(yaw / 2), math.sin(yaw / 2)
+    return (
+        sr * cp * cy - cr * sp * sy,
+        cr * sp * cy + sr * cp * sy,
+        cr * cp * sy - sr * sp * cy,
+        cr * cp * cy + sr * sp * sy,
+    )
+
+
 def entity_factory(agent: str, sdf: str, pose: list[float]) -> str:
     """Build the gz.msgs.EntityFactory request that puts one agent into the world."""
     x, y, z, roll, pitch, yaw = (pose + [0.0] * 6)[:6]
-    qx, qy, qz, qw = Rotation.from_euler("xyz", [roll, pitch, yaw]).as_quat()
+    qx, qy, qz, qw = quaternion(roll, pitch, yaw)
     return (
         f'sdf_filename: "{sdf}", name: "{agent}", allow_renaming: false, '
         f"pose: {{position: {{x: {x}, y: {y}, z: {z}}}, orientation: {{x: {qx}, y: {qy}, z: {qz}, w: {qw}}}}}"

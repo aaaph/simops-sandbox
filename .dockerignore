@@ -2,7 +2,6 @@
 # The macOS pixi env alone is ~5 GB and useless in a Linux image.
 .pixi/
 .git/
-.stack/
 .vscode/
 **/__pycache__/
 .pytest_cache/

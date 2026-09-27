@@ -14,8 +14,6 @@ import xml.etree.ElementTree as ET
 from collections import deque
 from pathlib import Path
 
-from scipy.spatial.transform import Rotation as Rot
-
 p = argparse.ArgumentParser()
 p.add_argument("--seed", type=int, default=0)  # same seed -> same map
 p.add_argument("--size", type=float, nargs=2, default=[10.0, 8.0], metavar=("X", "Y"))
@@ -27,8 +25,14 @@ p.add_argument("--platform", default="rover_differential_lidar")
 p.add_argument("--spawn-clear", type=float)  # defaults to --clearance
 p.add_argument("--robot", default="")  # "" to leave the room empty
 p.add_argument("--cell", type=float, default=0.05)  # flood-fill resolution
-p.add_argument("-o", "--out", default="worlds/temp_room.sdf")
+p.add_argument("-o", "--out", required=True)
 a = p.parse_args()
+
+
+def y_row(roll: float, pitch: float, yaw: float) -> tuple[float, float, float]:
+    """Row of the ROS roll-pitch-yaw rotation matrix (Rz @ Ry @ Rx) that maps body axes onto world Y."""
+    sr, cr, sp, cp, sy, cy = (f(a) for a in (roll, pitch, yaw) for f in (math.sin, math.cos))
+    return (sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr)
 
 
 def robot_width(platform: str) -> float | None:
@@ -68,7 +72,7 @@ def robot_width(platform: str) -> float | None:
                 continue  # meshes: no cheap extent, chassis boxes cover us
 
             # row of the rotation matrix that maps body axes onto world Y
-            row = Rot.from_euler("xyz", [lr + cr, lp + cp, lyaw + cyaw]).as_matrix()[1]
+            row = y_row(lr + cr, lp + cp, lyaw + cyaw)
             centre = ly + cy
             reach = abs(row[0]) * ex + abs(row[1]) * ey + abs(row[2]) * ez
             lo, hi = min(lo, centre - reach), max(hi, centre + reach)

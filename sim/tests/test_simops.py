@@ -1,12 +1,13 @@
 """A scenario turns into a bundle: world with the agents in it, merged bridge, compose."""
 
+import math
 import os
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import pytest
 import yaml
-from simops import build, host_env, load
+from simops import build, host_env, load, quaternion
 
 ROOT = Path(__file__).resolve().parents[2]
 SCENARIO = ROOT / "scenarios/rover_room.yaml"
@@ -163,3 +164,17 @@ def test_host_env(tmp_path):
     moved = host_env(load(variant(tmp_path, "moved", network={"router_port": 7448})))
     for key in ("GZ_TRANSPORT_ZENOH_CONFIG_OVERRIDE", "ZENOH_CONFIG_OVERRIDE"):
         assert "tcp/localhost:7448" in moved[key]
+
+
+@pytest.mark.parametrize(
+    ("rpy", "expected"),
+    [
+        ((0, 0, 0), (0, 0, 0, 1)),
+        ((0, 0, math.pi / 2), (0, 0, math.sqrt(0.5), math.sqrt(0.5))),
+        ((math.pi / 2, 0, 0), (math.sqrt(0.5), 0, 0, math.sqrt(0.5))),
+        # roll 90 then pitch 90 about the fixed axes (ROS rpy is extrinsic x-y-z)
+        ((math.pi / 2, math.pi / 2, 0), (0.5, 0.5, -0.5, 0.5)),
+    ],
+)
+def test_quaternion(rpy, expected):
+    assert quaternion(*rpy) == pytest.approx(expected, abs=1e-12)

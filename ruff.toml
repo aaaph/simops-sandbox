@@ -85,11 +85,6 @@ line-ending = "auto"
 [lint.per-file-ignores]
 # ignore unused imports in __init__.py files
 "__init__.py" = ["F401"]
-"sim/stack.py" = [
-    "T201", # A CLI reports by printing
-    "S603", # Every command it runs is a constant in the file, not outside input
-    "S607", # `gz`, `ps` and `pixi` are looked up on PATH on purpose
-]
 "sim/simops.py" = [
     "T201", # A CLI reports by printing
     "S603", # It runs docker and gz, or the command its user passed after --
@@ -98,10 +93,6 @@ line-ending = "auto"
 "sim/tests/test_simops_docker.py" = [
     "S603", # It runs docker and ros2 with constant arguments
     "S607", # `docker` and `ros2` are looked up on PATH on purpose
-]
-"sim/doctor.py" = [
-    "T201", # A diagnostic tool reports by printing
-    "S607", # `gz` and `ps` are looked up on PATH on purpose
 ]
 "sim/generate_temp_room_world.py" = [
     "T201",    # A CLI generator reports what it generated
