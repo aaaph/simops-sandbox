@@ -1,11 +1,11 @@
-# Spec Delta
+# sim-lifecycle Specification
 
 ## Purpose
 
 Starting, stopping and using a scenario's simulation as a disposable dependency: `up` means the
 agents are in a running world, and a failed or finished run leaves nothing behind.
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: Up returns when the simulation is ready
 `simops up <scenario>` SHALL build the bundle, start it, and return success only once every
@@ -22,13 +22,18 @@ greater simulation time.
 - **THEN** `up` does not report ready
 
 ### Requirement: Failed up leaves nothing running
-If containers fail to start, or readiness is not reached within `--timeout` seconds (default
-300), `up` SHALL print the last log lines of the services, remove every container of the
-scenario, and exit non-zero.
+If containers fail to start, or a readiness check fails after `--timeout` seconds (default 300)
+have passed, `up` SHALL print the last log lines of the services, remove every container of the
+scenario, and exit non-zero. The timeout bounds the waiting between failed checks, not the whole
+of `up`: a check that succeeds is accepted however long it took.
 
-#### Scenario: Timeout
-- **WHEN** `simops up <scenario> --timeout 1` cannot reach readiness in one second
+#### Scenario: Agent never appears
+- **WHEN** an agent's model cannot be loaded, so it never appears in the world, and `simops up <scenario> --timeout 1` runs
 - **THEN** it prints log lines, exits non-zero, and no container of the scenario remains
+
+#### Scenario: Ready on the first check
+- **WHEN** `simops up <scenario> --timeout 1` runs and the first readiness check succeeds
+- **THEN** `up` exits 0, although it took longer than one second
 
 ### Requirement: Down
 `simops down <scenario>` SHALL stop and remove all containers of the scenario, including

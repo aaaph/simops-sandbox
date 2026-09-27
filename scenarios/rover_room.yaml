@@ -1,4 +1,4 @@
-# A scenario: which world, which robots, which autopilot firmware. `pixi run simops up`
+# A scenario: which world, which agents, which autopilot firmware. `pixi run simops up`
 # builds it into build/<name>/ (compose.yaml + the world and platforms it uses) and
 # starts it. Paths are relative to this file.
 name: rover_room
@@ -8,7 +8,7 @@ world:
   # or `file: ../worlds/<some>.sdf` for a ready-made world
   room: { seed: 42, size: [20, 16] }
 
-# One firmware for every robot; the airframe comes from each platform's platform.yaml.
+# One firmware for every agent; the airframe comes from each platform's agent.yaml.
 autopilot:
   px4:
     # The /fmu/* type hashes are part of the zenoh key: whatever speaks to PX4
@@ -16,13 +16,13 @@ autopilot:
     # 2026-09-25, fix(simulation): cast gz airspeed temperature to double (#28843)
     ref: 4dbd2e069a5c30c2e53e47e842095d2576dc38c4
 
-# true: every robot's topics under /<robot name>/ (/rover1/scan, /rover1/fmu/out/...),
-# even with one robot. Required for more than one.
+# true: every agent's topics under /<agent name>/ (/rover1/scan, /rover1/fmu/out/...),
+# even with one agent. Required for more than one.
 namespaces: false
 
-robots:
+agents:
   rover1: # the model's name in gz
-    platform: ../platforms/rover_differential_lidar_px4 # model.sdf, bridge.yaml, platform.yaml
+    platform: ../platforms/rover_differential_lidar_px4 # model.sdf, bridge.yaml, agent.yaml
     pose: [0, 0, 0.2]
 
 network:

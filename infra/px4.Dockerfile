@@ -97,7 +97,7 @@ if [ -n "$PX4_ZENOH_NAMESPACE" ]; then
 	topics default_sub_config > "$Z/sub.csv"
 fi
 
-# -i: MAVLink ports and MAV_SYS_ID per robot, all PX4s share one network namespace
+# -i: MAVLink ports and MAV_SYS_ID per agent, all PX4s share one network namespace
 exec ../bin/px4 -d -i "${PX4_INSTANCE:-0}"
 EOF
 

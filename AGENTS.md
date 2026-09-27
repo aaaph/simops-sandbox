@@ -29,14 +29,14 @@ this machine run rerun too, and the rerun MCP server's own viewer must stay up.
   graph: `pixi run ros2 daemon stop`.
 - Port 7447 is taken by Docker, so `rmw_zenohd` cannot start; rmw_zenoh works peer-to-peer without it.
 
-## Docker sim: scenarios — world + robots + PX4 in containers, native macOS gz GUI over zenoh
+## Docker sim: scenarios — world + agents + PX4 in containers, native macOS gz GUI over zenoh
 
-A scenario is one YAML file — world, autopilot firmware, robots (platform + pose), namespaces,
+A scenario is one YAML file — world, autopilot firmware, agents (platform + pose), namespaces,
 router port — see `scenarios/rover_room.yaml`. `sim/simops.py` builds it into `build/<name>/`
-(`compose.yaml`, the merged `bridge.yaml`, the world with the robots placed in it, the platforms it
+(`compose.yaml`, the merged `bridge.yaml`, the world with the agents placed in it, the platforms it
 uses) and runs it as its own compose project, with `GZ_PARTITION=<name>`:
 
-    pixi run simops up scenarios/rover_room.yaml     # returns once every robot is in the world and sim time moves
+    pixi run simops up scenarios/rover_room.yaml     # returns once every agent is in the world and sim time moves
     pixi run simops gui scenarios/rover_room.yaml    # native gz GUI, right partition and router
     pixi run simops env scenarios/rover_room.yaml | source   # gz/ROS on the host (bash: eval "$(...)")
     pixi run simops run scenarios/rover_room.yaml -- pytest tests/   # up, command, down whatever happens
@@ -46,31 +46,25 @@ uses) and runs it as its own compose project, with `GZ_PARTITION=<name>`:
 `simops down`, or `simops run`, which does it for you. Leave running only what the user asked to
 keep up, and never touch containers you did not start.
 
-World: `room: {seed, size, obstacles}` generates a room with `sim/generate_temp_room_world.py`
-(same seed, same room), `file: <path>.sdf` takes a ready one. Two scenarios run side by side if
-their `name` and `router_port` differ.
+**The contract is in `openspec/specs/`** — `scenario` (the file format), `bundle` (what `build`
+writes), `sim-lifecycle` (`up`/`down`/`run`), `agent-spawn` (first the world, then the agents),
+`agent-interface` (topics, namespaces), `host-access` (`env`, `gui`, what host code must use),
+`autopilot`. Change behavior through an OpenSpec change, not by editing code alone. Tests:
+`pixi run test` (unit, seconds) and `pixi run pytest -m docker` (starts scenarios, minutes).
 
-A platform (`platforms/<p>/`) is `model.sdf` + `bridge.yaml` + `platform.yaml`; the last holds
-what cannot be separated from the body — for now the PX4 airframe. The scenario only picks the
-firmware (`autopilot.px4.ref`), the same for every robot.
-
-**First the world, then the robots** — the principle everything here is built on. The world
-starts empty (the world file has no robots); the one-shot `spawn` service adds each robot to the
-running world under its scenario name (`/world/<w>/create`, generated `spawn.sh`), and each
-`px4-<robot>` starts only after `spawn` succeeded and attaches to its robot (`PX4_GZ_MODEL_NAME`).
-The create reply can get lost over zenoh (#868 below), so `spawn.sh` does not wait on it: it looks
-for the model in `/world/<w>/pose/info` and retries. When the world restarts, compose reruns
-`spawn` and the PX4s with it. `namespaces: true` puts every robot's topics under `/<robot>/` — `/rover1/scan`,
-`/rover1/ground_truth`, `/rover1/fmu/out/...` — even with one robot, and is required for more than
-one; `/clock` stays global. It works by rewriting the gz `<topic>`/`<odom_topic>` in a per-robot
-copy of the model (`platforms/<p>.<robot>/`) and the bridge entries, and, for PX4 (whose zenoh
-module has no namespace option), by writing its topic list `fs/zenoh/{pub,sub}.csv` with the
-prefix before it starts (`sim-px4` in `px4.Dockerfile`). TF frame ids (`odom`, `base_link`,
-`lidar_link`) are not prefixed yet.
+How it is done, beyond the specs:
+- A platform (`platforms/<p>/`) is `model.sdf` + `bridge.yaml` + `agent.yaml`; the last holds
+  what cannot be separated from the body — for now the PX4 airframe.
+- Spawning goes through `/world/<w>/create` in the generated `spawn.sh`. The create reply can get
+  lost over zenoh (#868 below), so it looks for the model in `/world/<w>/pose/info` and retries.
+- Namespaces rewrite the gz `<topic>`/`<odom_topic>` in a per-agent copy of the model
+  (`platforms/<p>.<agent>/`) and the bridge entries; for PX4 (whose zenoh module has no namespace
+  option) `sim-px4` in `px4.Dockerfile` writes its topic list `fs/zenoh/{pub,sub}.csv` with the
+  prefix before it starts.
 
 Services: `zenoh-router` (ROS 2 and gz-transport both go through it), `world` (gz Jetty server),
-`px4-<robot>` (PX4 SITL at the scenario's `ref`, instance `-i N` so the PX4s sharing one network
-namespace get their own MAVLink ports), `spawn` (above) and `sim-sensors` (`ros_gz_bridge` with the robots'
+`px4-<agent>` (PX4 SITL at the scenario's `ref`, instance `-i N` so the PX4s sharing one network
+namespace get their own MAVLink ports), `spawn` (above) and `sim-sensors` (`ros_gz_bridge` with the agents'
 `bridge.yaml` merged: `/clock`, `/scan`, `/scan/points`, `/ground_truth` — the sim's stand-in for
 the sensor drivers). IMU, odometry and the
 wheels are PX4's `/fmu/*`. Images: `simops-sandbox-{ros,world}` and `simops-sandbox-px4:<ref[:12]>`,
@@ -141,11 +135,11 @@ crash), every container in its network namespace is left without network:
 
 Direction: a generic tool, not robot code — a Python package (library, `simops` CLI, pytest
 helper) taken as a dev-dependency by robot repos, the rover here staying as the example. Done:
-scenario format, `platform.yaml`, several robots with optional namespaces, bundle,
+scenario format, `agent.yaml`, several agents with optional namespaces, bundle,
 `up/down/run/env/gui` (`sim/simops.py`). Next, in this order, each when
 something needs it:
 - `simops.testing.sim_session(scenario)` — pytest fixture over up/down, per-session name and port
-  so tests run in parallel; robot helpers (arm, drive, ground truth) on top.
+  so tests run in parallel; agent helpers (arm, drive, ground truth) on top.
 - readiness beyond "in the world": PX4 heartbeat and preflight passed, so `up` means "can arm".
 - `show` (services, RTF, PX4 mode, topic rates), `reset`; TF frame prefixes with namespaces.
 - `--docker-host ssh://...` for a sim on another machine; the bundle already runs anywhere with
