@@ -132,7 +132,7 @@ If `zenoh-router` is restarted outside compose (`docker restart`, or `restart: a
 crash), every container in its network namespace is left without network:
 `docker compose -p <name> up -d --force-recreate <service>`.
 
-## Planned: simops as a tool
+## Planned: a toolkit of simulation tools
 
 Direction: a generic tool, not robot software — a Python package (library, `simops` CLI, pytest
 helper) taken as a dev-dependency by robot software repositories, the rover here staying as the example. Done:
@@ -143,6 +143,9 @@ something needs it:
   so tests run in parallel; agent helpers (arm, drive, ground truth) on top.
 - readiness beyond "in the world": PX4 heartbeat and preflight passed, so `up` means "can arm".
 - `show` (services, RTF, PX4 mode, topic rates), `reset`; TF frame prefixes with namespaces.
+- `worldgen maze`: a maze with a guaranteed exit (a perfect maze is connected by construction,
+  the exit an opening in the outer wall), a `MazeSpec` world source in simops, the exit position
+  as sim-only ground truth for the user's judge of an "exit the maze" scenario.
 - `--docker-host ssh://...` for a sim on another machine; the bundle already runs anywhere with
   Docker once its build contexts are images in a registry.
 - a single-container target for the cloud (Modal), router reached through a tunnel.

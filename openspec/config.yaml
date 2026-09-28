@@ -4,9 +4,15 @@ schema: spec-driven
 # behavior contracts written in this language; a term that carries behavior is defined by its
 # requirement and only named here.
 context: |
-  simops-sandbox: simops runs a simulation (gz Jetty world + agents + PX4 SITL) in Docker as a
-  dependency for robot software development, with the native gz GUI on macOS over zenoh. The
-  differential rover here is the example; simops is meant to become a generic tool.
+  simops-sandbox: a toolkit of simulation tools for robot software development, each its own
+  package in src/ with its own command and tests, used by robot software repositories:
+  - simops: runs a simulation (gz Jetty world + agents + PX4 SITL) in Docker as a dependency,
+    with the native gz GUI on macOS over zenoh (environment -> bundle -> session);
+  - worldgen: generates worlds for it (rooms; mazes next);
+  - more tools as they are needed (ground truth, sim control, helpers for the user's judge).
+  Tools depend one way (simops may use worldgen, never the reverse); a new capability that is
+  not about running a session goes into its own package rather than into simops. The
+  differential rover here is the example.
 
   GLOSSARY. Three bounded contexts, each its own code: simulation (src/simops), world
   generation (src/worldgen), robot software (the user's). Each term belongs to one side.
