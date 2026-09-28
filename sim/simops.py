@@ -55,7 +55,93 @@ def load(path: Path) -> dict:
     sc.setdefault("network", {}).setdefault("router_port", 7447)
     if len(sc["agents"]) > 1 and not sc["namespaces"]:
         sys.exit(f"{path}: several agents publish the same topics -- set `namespaces: true`")
+    check_px4(path, sc.setdefault("autopilot", {}).setdefault("px4", {}))
     return sc
+
+
+def check_px4(path: Path, px4: dict) -> None:
+    """Check how the scenario names its PX4, without the network: `down` and `env` run offline."""
+    if "ref" in px4:
+        sys.exit(f"{path}: `autopilot.px4.ref` is now `version` (a release tag) or `commit` (a full SHA)")
+    if "version" in px4 and "commit" in px4:
+        sys.exit(f"{path}: give `autopilot.px4.version` or `commit`, not both")
+    if "commit" in px4 and not re.fullmatch(r"[0-9a-f]{40}", str(px4["commit"])):
+        sys.exit(f"{path}: `autopilot.px4.commit` must be the full 40-character SHA")
+    if "version" in px4:
+        v = parse_version(str(px4["version"]))
+        if v is None:
+            sys.exit(f"{path}: `autopilot.px4.version: {px4['version']}` is not a PX4 version like v1.18.0")
+        if v[:2] < MIN_PX4:
+            sys.exit(f"{path}: {unsupported(str(px4['version']))}")
+
+
+def resolve_px4(px4: dict) -> tuple[str, str]:
+    """Resolve the scenario's PX4 to (what to build from: tag or commit, the commit); version needs the network."""
+    if "commit" in px4:
+        return px4["commit"], px4["commit"]
+    repo = px4.get("repo", PX4_REPO)
+    tags = parse_tags(ls_remote(repo))
+    if "version" in px4:
+        tag = str(px4["version"])
+        tag = tag if tag.startswith("v") else f"v{tag}"
+        if tag not in tags:
+            sys.exit(f"PX4 {tag}: no such tag in {repo}")
+    elif (tag := default_tag(tags)) is None:
+        sys.exit(f"{repo} has no tag of PX4 {'.'.join(map(str, MIN_PX4))} or later: set `autopilot.px4.commit`")
+    return tag, tags[tag]
+
+
+def unsupported(version: str) -> str:
+    """Say why a PX4 version cannot run on this stack."""
+    return (
+        f"PX4 {version} is not supported, the minimum is {'.'.join(map(str, MIN_PX4))}: "
+        "PX4 1.17 and earlier compile as C++14, the gz Jetty toolchain needs C++17"
+    )
+
+
+# PX4 1.17 and earlier compile as C++14; the conda gz Jetty env's abseil requires C++17
+MIN_PX4 = (1, 18)
+PX4_REPO = "https://github.com/PX4/PX4-Autopilot.git"
+VERSION = re.compile(r"v?(\d+)\.(\d+)\.(\d+)(?:-(alpha|beta|rc)(\d+))?")
+STAGES = {"alpha": 0, "beta": 1, "rc": 2, None: 3}  # 3: a release
+
+
+def parse_version(text: str) -> tuple[int, int, int, int, int] | None:
+    """Order key of a PX4 version (`v1.18.0`, `1.18.0-rc1`), or None if it is not one."""
+    m = VERSION.fullmatch(text)
+    if not m:
+        return None
+    major, minor, patch, stage, n = m.groups()
+    return int(major), int(minor), int(patch), STAGES[stage], int(n or 0)
+
+
+def parse_tags(ls_remote_output: str) -> dict[str, str]:
+    """Map each tag of `git ls-remote --tags` to its commit; an annotated tag's peeled line wins."""
+    tags: dict[str, str] = {}
+    for line in ls_remote_output.splitlines():
+        sha, _, ref = line.partition("\t")
+        name = ref.removeprefix("refs/tags/")
+        if name.endswith("^{}"):
+            tags[name[:-3]] = sha
+        else:
+            tags.setdefault(name, sha)
+    return tags
+
+
+def default_tag(tags: dict[str, str]) -> str | None:
+    """Newest supported release tag, else the newest supported pre-release, else None."""
+    supported = {t: v for t in tags if (v := parse_version(t)) and v[:2] >= MIN_PX4}
+    releases = [t for t, v in supported.items() if v[3] == STAGES[None]]
+    pool = releases or list(supported)
+    return max(pool, key=lambda t: supported[t]) if pool else None
+
+
+def ls_remote(repo: str) -> str:
+    """List the repository's tags (network)."""
+    out = subprocess.run(["git", "ls-remote", "--tags", repo], capture_output=True, text=True, check=False)
+    if out.returncode:
+        sys.exit(f"cannot list the tags of {repo} (a `commit` builds offline): {out.stderr.strip()}")
+    return out.stdout
 
 
 def zenoh_gz(port: int = 7447) -> str:
@@ -63,7 +149,7 @@ def zenoh_gz(port: int = 7447) -> str:
     return f'mode="peer";connect/endpoints=["tcp/localhost:{port}"];scouting/multicast/enabled=false'
 
 
-def compose(sc: dict, world_stem: str, world_name: str) -> dict:
+def compose(sc: dict, world_stem: str, world_name: str, px4_ref: str, px4_commit: str) -> dict:
     """Describe the scenario as a compose file; paths are relative to the bundle directory."""
     name, px4 = sc["name"], sc["autopilot"]["px4"]
     gz = {"GZ_PARTITION": name, "GZ_TRANSPORT_ZENOH_CONFIG_OVERRIDE": zenoh_gz()}
@@ -90,11 +176,11 @@ def compose(sc: dict, world_stem: str, world_name: str) -> dict:
                 "context": str(ROOT),
                 "dockerfile": "infra/px4.Dockerfile",
                 "args": {
-                    "PX4_REPO": px4.get("repo", "https://github.com/PX4/PX4-Autopilot.git"),
-                    "PX4_REF": px4["ref"],
+                    "PX4_REPO": px4.get("repo", PX4_REPO),
+                    "PX4_REF": px4_ref,
                 },
             },
-            "image": f"simops-sandbox-px4:{px4['ref'][:12]}",
+            "image": f"simops-sandbox-px4:{px4_commit[:12]}",  # one image per commit, however it was named
             **after_spawn,
             "environment": {
                 **gz,
@@ -275,7 +361,9 @@ def build(sc: dict) -> dict:
     world_name = world_el.get("name", "")
     bridge = prepare_agents(sc, world_name, out)
     (out / "bridge.yaml").write_text(yaml.safe_dump(bridge, sort_keys=False))
-    spec = compose(sc, sdf.stem, world_name)
+    px4_ref, px4_commit = resolve_px4(sc["autopilot"]["px4"])
+    print(f"PX4 {px4_commit}" if px4_ref == px4_commit else f"PX4 {px4_ref} = {px4_commit}", flush=True)
+    spec = compose(sc, sdf.stem, world_name, px4_ref, px4_commit)
     (out / "compose.yaml").write_text(yaml.safe_dump(spec, sort_keys=False))
     return spec
 

@@ -29,11 +29,24 @@ RUN pixi init --platform linux-aarch64 --platform linux-64 \
     "libopencv=4.13" pkg-config \
     && pixi shell-hook > /opt/gz/activate.sh \
     && pixi clean cache --yes
-COPY --from=px4-src /px4/Tools/setup/requirements.txt /tmp/px4-requirements.txt
-RUN . /opt/gz/activate.sh \
-    && python -m pip install --no-cache-dir -r /tmp/px4-requirements.txt
-
 COPY --from=px4-src /px4 /px4
+# PX4's build reports `git describe`: a tag build has its tag, a commit build (shallow, no tags)
+# would say v0.0.0, so fetch its history without trees or blobs. The fetch may exit non-zero
+# after getting what describe needs (a lazy fetch of one more object), so describe decides.
+# 1.17 and earlier compile as C++14, which this conda gz Jetty env's abseil (C++17) cannot build:
+# stop here, before the Python requirements and the ~10 min compile.
+RUN . /opt/gz/activate.sh && cd /px4 \
+    && { git describe --tags >/dev/null 2>&1 || git fetch --quiet --unshallow --filter=tree:0 --tags origin || true; } \
+    && v=$(git describe --tags 2>/dev/null) || { echo "cannot tell the PX4 version of $(git rev-parse HEAD)" >&2; exit 1; } \
+    && echo "PX4 $v" \
+    && major=$(echo "$v" | sed -nE 's/^v([0-9]+)\.([0-9]+)\..*/\1/p') \
+    && minor=$(echo "$v" | sed -nE 's/^v([0-9]+)\.([0-9]+)\..*/\2/p') \
+    && if [ "${major:-0}" -lt 1 ] || { [ "${major:-0}" -eq 1 ] && [ "${minor:-0}" -lt 18 ]; }; then \
+    echo "PX4 $v is not supported, the minimum is 1.18: PX4 1.17 and earlier compile as C++14, the gz Jetty toolchain needs C++17" >&2; \
+    exit 1; fi
+RUN . /opt/gz/activate.sh \
+    && python -m pip install --no-cache-dir -r /px4/Tools/setup/requirements.txt
+
 RUN . /opt/gz/activate.sh \
     && cmake -S /px4 -B /px4/build/px4_sitl_zenoh -G Ninja \
     -DCONFIG=px4_sitl_zenoh -DCMAKE_PREFIX_PATH=$CONDA_PREFIX \
@@ -83,11 +96,13 @@ export PX4_PARAM_ZENOH_ENABLE=1  # px4_sitl_zenoh dials the router on localhost:
 cd "$B/rootfs"
 
 # The zenoh module has no namespace option, but reads its topic list from
-# fs/zenoh/{pub,sub}.csv in the instance's working directory (rootfs/<-i>) and
+# <root>/zenoh/{pub,sub}.csv in the instance's working directory (rootfs/<-i>) and
 # writes its built-in defaults there only if they are missing: write the
-# defaults with every topic under /<namespace>.
+# defaults with every topic under /<namespace>. <root> is the board's root path:
+# "." in PX4 1.18.0-rc1, "./fs" since #28582 on main.
 if [ -n "$PX4_ZENOH_NAMESPACE" ]; then
-	Z="${PX4_INSTANCE:-0}/fs/zenoh"
+	ROOT=$(sed -n 's/^CONFIG_BOARD_ROOT_PATH="\(.*\)"$/\1/p' "$B/boardconfig")
+	Z="${PX4_INSTANCE:-0}/${ROOT:-./fs}/zenoh"
 	mkdir -p "$Z"
 	topics() {
 		sed -n "/$1/,/^;/"'s|^[[:space:]]*"/\(.*\)\\n"$|/'"$PX4_ZENOH_NAMESPACE"'/\1|p' \

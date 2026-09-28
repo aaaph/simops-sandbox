@@ -19,7 +19,9 @@ GZ_SIM_RESOURCE_PATH = "$PIXI_PROJECT_ROOT/platforms"
 simops = "python sim/simops.py"
 lint = "ruff check --fix --show-fixes && ty check"
 test = "pytest"
-format = "ruff format"
+# every pre-commit hook, ruff format included: the first run fixes (and exits 1 if it did),
+# the second checks nothing is left
+format = "pre-commit run --all-files || pre-commit run --all-files"
 
 [dependencies]
 gz-sim = ">=10.5,<11"   # Jetty, as in the Docker images: the native GUI talks to their server

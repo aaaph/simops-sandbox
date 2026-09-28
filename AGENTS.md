@@ -44,24 +44,29 @@ How it is done, beyond the specs:
   lost over zenoh (#868 below), so it looks for the model in `/world/<w>/pose/info` and retries.
 - Namespaces rewrite the gz `<topic>`/`<odom_topic>` in a per-agent copy of the model
   (`platforms/<p>.<agent>/`) and the bridge entries; for PX4 (whose zenoh module has no namespace
-  option) `sim-px4` in `px4.Dockerfile` writes its topic list `fs/zenoh/{pub,sub}.csv` with the
-  prefix before it starts.
+  option) `sim-px4` in `px4.Dockerfile` writes its topic list `<board root>/zenoh/{pub,sub}.csv` (root `.` in 1.18.0-rc1,
+  `./fs` on later main) with the prefix before it starts.
 
 Services: `zenoh-router` (ROS 2 and gz-transport both go through it), `world` (gz Jetty server),
-`px4-<agent>` (PX4 SITL at the scenario's `ref`, instance `-i N` so the PX4s sharing one network
+`px4-<agent>` (PX4 SITL of the scenario's firmware, instance `-i N` so the PX4s sharing one network
 namespace get their own MAVLink ports), `spawn` (above) and `sim-sensors` (`ros_gz_bridge` with the agents'
 `bridge.yaml` merged: `/clock`, `/scan`, `/scan/points`, `/ground_truth` — the sim's stand-in for
 the sensor drivers). IMU, odometry and the
-wheels are PX4's `/fmu/*`. Images: `simops-sandbox-{ros,world}` and `simops-sandbox-px4:<ref[:12]>`,
+wheels are PX4's `/fmu/*`. Images: `simops-sandbox-{ros,world}` and `simops-sandbox-px4:<commit[:12]>`,
 built by compose on first use; after a Dockerfile change, `docker compose -f
 build/<name>/compose.yaml build`. All of them are built on the same conda-forge gz Jetty as the
 macOS pixi env, with gz-transport's zenoh backend, so the native macOS GUI attaches through the
 router — no noVNC. The same `GZ_PARTITION` is required on every side: the default is
 `<hostname>:<user>`, so the containers and the Mac never see each other without it.
 
-PX4 version: each `ref` is its own image and a full PX4 build (~10 min); switching back to a
-built `ref` costs nothing. There is no `v1.17.0` tag yet (latest `v1.17.0-rc2`, 2026-09-26); the
-pinned commit is `main` with the Jetty build fix #28843 — check a release has it before pinning.
+PX4 version (spec: `autopilot`): `version: v1.18.0` or `commit: <full SHA>`, or neither for the
+newest 1.18+ release (the newest 1.18+ pre-release while there is none). `build` resolves it
+with `git ls-remote` (network; a `commit` builds offline) and tags the image by the commit, so
+each firmware is one full PX4 build (~10 min) and switching back to a built one costs nothing.
+PX4 1.18 is the minimum: 1.17 and earlier compile as C++14, which the conda gz Jetty env's
+abseil (C++17) cannot build (v1.17.0 checked 2026-09-28); older PX4 would need the Harmonic +
+noVNC variant below as a second stack. A commit build fetches its history (no trees, ~300 MB)
+so PX4 reports its `git describe` version and too old a commit stops before the compile.
 
 **Previous variant, gz Harmonic + GUI over noVNC,** is in commit `fb24cde`: `infra/world.Dockerfile`
 (targets `world` and `gui`), `infra/px4.Dockerfile` (PX4 built with PX4's `ubuntu.sh`, Harmonic from
@@ -107,7 +112,7 @@ details), cut down to keep the ABI of the prebuilt gz-sim/gz-gui/PX4 binaries:
 **Other things the Jetty images work around:** the world needs Mesa from apt (the conda env has
 only the glvnd dispatcher, so Ogre segfaults when the rover's gpu_lidar spawns); PX4 needs OpenCV
 4 (its optical-flow gz plugin uses C headers OpenCV 5 dropped) and a system gcc (its idlc host tool
-hardcodes `/usr/bin/gcc`). `PX4_REF` defaults to `main`, so a rebuild picks up new PX4 commits.
+hardcodes `/usr/bin/gcc`).
 
 Only one source of manual control wins in PX4: with QGC's virtual joystick on, sticks sent from
 a script on another MAVLink link are ignored.
