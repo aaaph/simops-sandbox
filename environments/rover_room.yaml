@@ -1,6 +1,6 @@
-# A scenario: which world, which agents, which autopilot firmware. `pixi run simops up`
-# builds it into build/<name>/ (compose.yaml + the world and platforms it uses) and
-# starts it. Paths are relative to this file.
+# An environment: which world, which agents, which autopilot firmware -- no action.
+# `pixi run simops build` turns it into a bundle in build/<name>/ (compose.yaml + the world
+# and platforms it uses), `up` runs the bundle as a session. Paths are relative to this file.
 name: rover_room
 
 world:

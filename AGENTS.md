@@ -11,28 +11,30 @@ rerun MCP server's own viewer must stay up.
 - If ROS topics look silent while Gazebo publishes (`gz topic -l`), the ros2 daemon holds a stale
   graph: `pixi run ros2 daemon stop`.
 
-## Docker sim: scenarios — world + agents + PX4 in containers, native macOS gz GUI over zenoh
+## Docker sim: environments — world + agents + PX4 in containers, native macOS gz GUI over zenoh
 
-A scenario is one YAML file — world, autopilot firmware, agents (platform + pose), namespaces,
-router port — see `scenarios/rover_room.yaml`. `sim/simops.py` builds it into `build/<name>/`
-(`compose.yaml`, the merged `bridge.yaml`, the world with the agents placed in it, the platforms it
-uses) and runs it as its own compose project, with `GZ_PARTITION=<name>`:
+Words: an **environment** is one YAML file — world, autopilot firmware, agents (platform + pose),
+namespaces, router port, no action — see `environments/rover_room.yaml`. `sim/simops.py` builds it
+into a **bundle** in `build/<name>/` (`compose.yaml`, the merged `bridge.yaml`, the world with the
+agents placed in it, the platforms it uses) and runs the bundle as a **session**: its own compose
+project, with `GZ_PARTITION=<name>`. "Scenario" is kept for what happens in a session (a task,
+world events, success criteria), which simops does not describe yet.
 
-    pixi run simops up scenarios/rover_room.yaml     # returns once every agent is in the world and sim time moves
-    pixi run simops gui scenarios/rover_room.yaml    # native gz GUI, right partition and router
-    pixi run simops env scenarios/rover_room.yaml | source   # gz/ROS on the host (bash: eval "$(...)")
-    pixi run simops run scenarios/rover_room.yaml -- pytest tests/   # up, command, down whatever happens
-    pixi run simops down scenarios/rover_room.yaml
+    pixi run simops up environments/rover_room.yaml     # returns once every agent is in the world and sim time moves
+    pixi run simops gui environments/rover_room.yaml    # native gz GUI, right partition and router
+    pixi run simops host-env environments/rover_room.yaml | source   # gz/ROS on the host (bash: eval "$(...)")
+    pixi run simops run environments/rover_room.yaml -- pytest tests/   # up, command, down whatever happens
+    pixi run simops down environments/rover_room.yaml
 
 **Clean up after yourself:** containers you started to check or verify something, you stop —
 `simops down`, or `simops run`, which does it for you. Leave running only what the user asked to
 keep up, and never touch containers you did not start.
 
-**The contract is in `openspec/specs/`** — `scenario` (the file format), `bundle` (what `build`
+**The contract is in `openspec/specs/`** — `environment` (the file format), `bundle` (what `build`
 writes), `sim-lifecycle` (`up`/`down`/`run`), `agent-spawn` (first the world, then the agents),
-`agent-interface` (topics, namespaces), `host-access` (`env`, `gui`, what host code must use),
+`agent-interface` (topics, namespaces), `host-access` (`host-env`, `gui`, what host code must use),
 `autopilot`. Change behavior through an OpenSpec change, not by editing code alone. Tests:
-`pixi run test` (unit, seconds) and `pixi run pytest -m docker` (starts scenarios, minutes).
+`pixi run test` (unit, seconds) and `pixi run pytest -m docker` (starts sessions, minutes).
 
 How it is done, beyond the specs:
 - The CLI is Typer; the compose project is driven through testcontainers' `DockerCompose`
@@ -48,7 +50,7 @@ How it is done, beyond the specs:
   `./fs` on later main) with the prefix before it starts.
 
 Services: `zenoh-router` (ROS 2 and gz-transport both go through it), `world` (gz Jetty server),
-`px4-<agent>` (PX4 SITL of the scenario's firmware, instance `-i N` so the PX4s sharing one network
+`px4-<agent>` (PX4 SITL of the environment's firmware, instance `-i N` so the PX4s sharing one network
 namespace get their own MAVLink ports), `spawn` (above) and `sim-sensors` (`ros_gz_bridge` with the agents'
 `bridge.yaml` merged: `/clock`, `/scan`, `/scan/points`, `/ground_truth` — the sim's stand-in for
 the sensor drivers). IMU, odometry and the
@@ -125,10 +127,10 @@ crash), every container in its network namespace is left without network:
 
 Direction: a generic tool, not robot code — a Python package (library, `simops` CLI, pytest
 helper) taken as a dev-dependency by robot repos, the rover here staying as the example. Done:
-scenario format, `agent.yaml`, several agents with optional namespaces, bundle,
+environment format, `agent.yaml`, several agents with optional namespaces, bundle,
 `up/down/run/env/gui` (`sim/simops.py`). Next, in this order, each when
 something needs it:
-- `simops.testing.sim_session(scenario)` — pytest fixture over up/down, per-session name and port
+- `simops.testing.sim_session(environment)` — pytest fixture over up/down, per-session name and port
   so tests run in parallel; agent helpers (arm, drive, ground truth) on top.
 - readiness beyond "in the world": PX4 heartbeat and preflight passed, so `up` means "can arm".
 - `show` (services, RTF, PX4 mode, topic rates), `reset`; TF frame prefixes with namespaces.

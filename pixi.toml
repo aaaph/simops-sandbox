@@ -15,7 +15,7 @@ RMW_IMPLEMENTATION = "rmw_zenoh_cpp"
 GZ_SIM_RESOURCE_PATH = "$PIXI_PROJECT_ROOT/platforms"
 
 [tasks]
-# scenarios in Docker: world + agents + autopilot from one YAML, see sim/simops.py
+# environments in Docker: world + agents + autopilot from one YAML, see sim/simops.py
 simops = "python sim/simops.py"
 lint = "ruff check --fix --show-fixes && ty check"
 test = "pytest"

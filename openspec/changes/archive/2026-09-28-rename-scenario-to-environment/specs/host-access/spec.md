@@ -1,11 +1,11 @@
-# host-access Specification
+# Spec Delta
 
-## Purpose
+## RENAMED Requirements
 
-How code and tools on the host reach a running session: one router port carries both ROS 2 and
-gz, and host code has to speak the same transport and message versions as the session.
+- FROM: `### Requirement: One port per scenario`
+- TO: `### Requirement: One port per environment`
 
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: One port per environment
 A session SHALL be reachable from the host through one router port, `network.router_port`,

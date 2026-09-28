@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
-"""Run a scenario -- world + agents + autopilot, described in one YAML file -- in Docker.
+"""Run an environment -- world + agents + autopilot, described in one YAML file -- in Docker.
 
 First the world, then the agents: the world starts empty, a one-shot `spawn` service
-adds the scenario's agents to it, and only then does each agent's autopilot attach.
-`build` turns the scenario into a bundle in build/<name>/ -- compose.yaml, spawn.sh,
+adds the environment's agents to it, and only then does each agent's autopilot attach.
+`build` turns the environment into a bundle in build/<name>/ -- compose.yaml, spawn.sh,
 bridge.yaml, the world and the platforms -- that plain `docker compose up` runs too.
 `up` builds it, starts it and returns only once every agent is in the world and the
 physics moves; if it cannot get there, it prints the log tail and leaves nothing running.
-`run` does up, runs a command against the sim, and always tears it down. Every scenario
-is its own compose project and GZ_PARTITION, driven through testcontainers' DockerCompose.
+`run` does up, runs a command against the sim, and always tears it down. Every environment's
+session is its own compose project and GZ_PARTITION, driven through testcontainers' DockerCompose.
 
 \b
-    pixi run simops up scenarios/rover_room.yaml
-    pixi run simops run scenarios/rover_room.yaml -- pytest tests/
-    pixi run simops env scenarios/rover_room.yaml | source   # fish; bash: eval "$(...)"
-    pixi run simops down scenarios/rover_room.yaml
+    pixi run simops up environments/rover_room.yaml
+    pixi run simops run environments/rover_room.yaml -- pytest tests/
+    pixi run simops host-env environments/rover_room.yaml | source   # fish; bash: eval "$(...)"
+    pixi run simops down environments/rover_room.yaml
 """  # noqa: D301 -- `\b` keeps click from rewrapping the examples
 
 import logging
@@ -41,26 +41,26 @@ logging.getLogger("testcontainers").setLevel(logging.CRITICAL)
 
 
 def load(path: Path) -> dict:
-    """Read a scenario, resolving its paths against the file's own directory."""
-    sc = yaml.safe_load(path.read_text())
+    """Read an environment, resolving its paths against the file's own directory."""
+    environment = yaml.safe_load(path.read_text())
     base = path.resolve().parent
-    if "robots" in sc:
+    if "robots" in environment:
         sys.exit(f"{path}: `robots:` is now `agents:`")
-    if "file" in sc["world"]:
-        sc["world"]["file"] = (base / sc["world"]["file"]).resolve()
-    for agent in sc["agents"].values():
+    if "file" in environment["world"]:
+        environment["world"]["file"] = (base / environment["world"]["file"]).resolve()
+    for agent in environment["agents"].values():
         agent["platform"] = (base / agent["platform"]).resolve()
         agent["meta"] = yaml.safe_load((agent["platform"] / "agent.yaml").read_text())
-    sc.setdefault("namespaces", False)
-    sc.setdefault("network", {}).setdefault("router_port", 7447)
-    if len(sc["agents"]) > 1 and not sc["namespaces"]:
+    environment.setdefault("namespaces", False)
+    environment.setdefault("network", {}).setdefault("router_port", 7447)
+    if len(environment["agents"]) > 1 and not environment["namespaces"]:
         sys.exit(f"{path}: several agents publish the same topics -- set `namespaces: true`")
-    check_px4(path, sc.setdefault("autopilot", {}).setdefault("px4", {}))
-    return sc
+    check_px4(path, environment.setdefault("autopilot", {}).setdefault("px4", {}))
+    return environment
 
 
 def check_px4(path: Path, px4: dict) -> None:
-    """Check how the scenario names its PX4, without the network: `down` and `env` run offline."""
+    """Check how the environment names its PX4, without the network: `down` and `host-env` run offline."""
     if "ref" in px4:
         sys.exit(f"{path}: `autopilot.px4.ref` is now `version` (a release tag) or `commit` (a full SHA)")
     if "version" in px4 and "commit" in px4:
@@ -76,7 +76,7 @@ def check_px4(path: Path, px4: dict) -> None:
 
 
 def resolve_px4(px4: dict) -> tuple[str, str]:
-    """Resolve the scenario's PX4 to (what to build from: tag or commit, the commit); version needs the network."""
+    """Resolve the environment's PX4 to (tag or commit to build from, the commit); a version needs the network."""
     if "commit" in px4:
         return px4["commit"], px4["commit"]
     repo = px4.get("repo", PX4_REPO)
@@ -149,11 +149,11 @@ def zenoh_gz(port: int = 7447) -> str:
     return f'mode="peer";connect/endpoints=["tcp/localhost:{port}"];scouting/multicast/enabled=false'
 
 
-def compose(sc: dict, world_stem: str, world_name: str, px4_ref: str, px4_commit: str) -> dict:
-    """Describe the scenario as a compose file; paths are relative to the bundle directory."""
-    name, px4 = sc["name"], sc["autopilot"]["px4"]
+def compose(environment: dict, world_stem: str, world_name: str, px4_ref: str, px4_commit: str) -> dict:
+    """Describe the environment as a compose file; paths are relative to the bundle directory."""
+    name, px4 = environment["name"], environment["autopilot"]["px4"]
     gz = {"GZ_PARTITION": name, "GZ_TRANSPORT_ZENOH_CONFIG_OVERRIDE": zenoh_gz()}
-    port = sc["network"]["router_port"]
+    port = environment["network"]["router_port"]
 
     def beside_router(*restart_with: str) -> dict:
         # Sharing the router's network namespace (localhost:7447 is the router): when the
@@ -188,10 +188,10 @@ def compose(sc: dict, world_stem: str, world_name: str, px4_ref: str, px4_commit
                 "PX4_GZ_MODEL_NAME": agent,
                 "PX4_SYS_AUTOSTART": str(spec["meta"]["autopilot"]["px4"]["airframe"]),
                 "PX4_INSTANCE": str(i),
-                **({"PX4_ZENOH_NAMESPACE": agent} if sc["namespaces"] else {}),
+                **({"PX4_ZENOH_NAMESPACE": agent} if environment["namespaces"] else {}),
             },
         }
-        for i, (agent, spec) in enumerate(sc["agents"].items())
+        for i, (agent, spec) in enumerate(environment["agents"].items())
     }
     ros = {"build": {"context": str(ROOT), "dockerfile": "infra/ros.Dockerfile"}, "image": "simops-sandbox-ros"}
     return {
@@ -245,7 +245,7 @@ def namespaced(agent: str, topic: str) -> str:
 
 
 SPAWN = """#!/bin/sh
-# First the world, then the agents: add the scenario's agents to the running world.
+# First the world, then the agents: add the environment's agents to the running world.
 # Generated by sim/simops.py.
 set -e
 . /opt/gz/activate.sh
@@ -296,17 +296,17 @@ def entity_factory(agent: str, sdf: str, pose: list[float]) -> str:
     )
 
 
-def prepare_agents(sc: dict, world: str, out: Path) -> list[dict]:
+def prepare_agents(environment: dict, world: str, out: Path) -> list[dict]:
     """Write spawn.sh for every agent; return everyone's bridge entries.
 
     With namespaces, each agent gets its own copy of the model whose gz topics sit
     under /<agent>, and the bridge maps them to ROS names under /<agent> too.
     """
     bridge, spawns = [], []
-    for agent, spec in sc["agents"].items():
+    for agent, spec in environment["agents"].items():
         platform = spec["platform"].name
         entries = yaml.safe_load((spec["platform"] / "bridge.yaml").read_text())
-        if sc["namespaces"]:
+        if environment["namespaces"]:
             model = ET.parse(spec["platform"] / "model.sdf")
             for el in model.iter():
                 if el.tag in ("topic", "odom_topic") and el.text:  # sensors, odometry: not model-scoped
@@ -325,20 +325,20 @@ def prepare_agents(sc: dict, world: str, out: Path) -> list[dict]:
     return bridge
 
 
-def build(sc: dict) -> dict:
+def build(environment: dict) -> dict:
     """Write the bundle build/<name>/: compose.yaml, spawn.sh, bridge.yaml, worlds/, platforms/."""
-    out = ROOT / "build" / sc["name"]
+    out = ROOT / "build" / environment["name"]
     shutil.rmtree(out, ignore_errors=True)
     (out / "worlds").mkdir(parents=True)
     # the platforms and the models they borrow from (meshes of another platform: model://<name>/...)
-    platforms = {r["platform"] for r in sc["agents"].values()}
+    platforms = {r["platform"] for r in environment["agents"].values()}
     for platform in list(platforms):
         borrowed = re.findall(r"model://([^/<]+)/", (platform / "model.sdf").read_text())
         platforms |= {platform.parent / name for name in borrowed}
     for p in platforms:
         shutil.copytree(p, out / "platforms" / p.name)
 
-    world = sc["world"]
+    world = environment["world"]
     if "file" in world:
         sdf = out / "worlds" / world["file"].name
         shutil.copy(world["file"], sdf)
@@ -346,7 +346,7 @@ def build(sc: dict) -> dict:
         room = world["room"]
         sdf = out / "worlds" / "room.sdf"
         # ponytail: clearance from the first agent's platform; pass the widest if they differ a lot
-        first = next(iter(sc["agents"].values()))["platform"].name
+        first = next(iter(environment["agents"].values()))["platform"].name
         subprocess.run(
             [sys.executable, ROOT / "sim/generate_temp_room_world.py", "--platform", first, "-o", sdf]
             + ["--seed", str(room.get("seed", 0))]
@@ -359,25 +359,25 @@ def build(sc: dict) -> dict:
     if world_el is None or not world_el.get("name"):
         sys.exit(f"{sdf}: no <world name=...>")
     world_name = world_el.get("name", "")
-    bridge = prepare_agents(sc, world_name, out)
+    bridge = prepare_agents(environment, world_name, out)
     (out / "bridge.yaml").write_text(yaml.safe_dump(bridge, sort_keys=False))
-    px4_ref, px4_commit = resolve_px4(sc["autopilot"]["px4"])
+    px4_ref, px4_commit = resolve_px4(environment["autopilot"]["px4"])
     print(f"PX4 {px4_commit}" if px4_ref == px4_commit else f"PX4 {px4_ref} = {px4_commit}", flush=True)
-    spec = compose(sc, sdf.stem, world_name, px4_ref, px4_commit)
+    spec = compose(environment, sdf.stem, world_name, px4_ref, px4_commit)
     (out / "compose.yaml").write_text(yaml.safe_dump(spec, sort_keys=False))
     return spec
 
 
-def project(sc: dict) -> DockerCompose:
-    """Open the scenario's bundle as a compose project (its name is set in compose.yaml)."""
-    bundle = ROOT / "build" / sc["name"]
+def project(environment: dict) -> DockerCompose:
+    """Open the environment's bundle as a compose project (its name is set in compose.yaml)."""
+    bundle = ROOT / "build" / environment["name"]
     return DockerCompose(bundle, compose_file_name=str(bundle / "compose.yaml"), wait=True)
 
 
-def log_tail(sc: dict, lines: int = 15) -> None:
+def log_tail(environment: dict, lines: int = 15) -> None:
     """Print the last lines each service logged."""
     try:
-        out, err = project(sc).get_logs()
+        out, err = project(environment).get_logs()
     except CalledProcessError:
         return
     tails: dict[str, list[str]] = {}
@@ -387,11 +387,11 @@ def log_tail(sc: dict, lines: int = 15) -> None:
         print("\n".join(tail[-lines:]))
 
 
-def pose_stamp(sc: dict, world: str, agents: list[str]) -> float | None:
+def pose_stamp(environment: dict, world: str, agents: list[str]) -> float | None:
     """Sim time of one pose message that has every agent in it, or None."""
     echo = f". /opt/gz/activate.sh && timeout 10 gz topic -e -t /world/{world}/pose/info -n 1"
     try:
-        out, _, _ = project(sc).exec_in_container(["sh", "-c", echo], "world")
+        out, _, _ = project(environment).exec_in_container(["sh", "-c", echo], "world")
     except CalledProcessError:  # no pose message within the timeout: the world is not up yet
         return None
     if not all(f'name: "{agent}"' in out for agent in agents):
@@ -400,113 +400,115 @@ def pose_stamp(sc: dict, world: str, agents: list[str]) -> float | None:
     return int(sec.group(1)) + int(nsec.group(1)) * 1e-9 if sec and nsec else None
 
 
-def ready(sc: dict, spec: dict) -> bool:
+def ready(environment: dict, spec: dict) -> bool:
     """Check the agents are in the world and sim time moves -- a wedged server publishes once and stops."""
     world = next(s for n, s in spec["services"].items() if n.startswith("px4-"))["environment"]["PX4_GZ_WORLD"]
-    agents = list(sc["agents"])
-    first = pose_stamp(sc, world, agents)
+    agents = list(environment["agents"])
+    first = pose_stamp(environment, world, agents)
     if first is None:
         return False
     time.sleep(1.5)
-    second = pose_stamp(sc, world, agents)
+    second = pose_stamp(environment, world, agents)
     return second is not None and second > first
 
 
-def host_env(sc: dict) -> dict[str, str]:
-    """Say what gz and ROS on the host need to reach this scenario through its router."""
-    port = sc["network"]["router_port"]
+def host_env(environment: dict) -> dict[str, str]:
+    """Say what gz and ROS on the host need to reach this environment's session through its router."""
+    port = environment["network"]["router_port"]
     return {
-        "GZ_PARTITION": sc["name"],
+        "GZ_PARTITION": environment["name"],
         "GZ_TRANSPORT_IMPLEMENTATION": "zenoh",
         "GZ_TRANSPORT_ZENOH_CONFIG_OVERRIDE": zenoh_gz(port),
         "ZENOH_CONFIG_OVERRIDE": f'mode="client";connect/endpoints=["tcp/localhost:{port}"]',
     }
 
 
-def up(sc: dict, timeout: float) -> int:
-    """Build and start the scenario, wait until the agents are in a running sim; on failure leave nothing."""
-    spec = build(sc)
-    print(f"starting {sc['name']} (images are built on first use; a PX4 build takes ~10 min)", flush=True)
+def up(environment: dict, timeout: float) -> int:
+    """Build the environment, start its session, wait for the agents in a running sim; on failure leave nothing."""
+    spec = build(environment)
+    print(f"starting {environment['name']} (images are built on first use; a PX4 build takes ~10 min)", flush=True)
     try:
-        project(sc).start()  # up --wait: every service runs, `spawn` exited 0
+        project(environment).start()  # up --wait: every service runs, `spawn` exited 0
     except CalledProcessError as e:
         print(e.stderr.decode(errors="ignore").strip(), "\nlast log lines:")
-        log_tail(sc)
-        down(sc)
+        log_tail(environment)
+        down(environment)
         return 1
     deadline = time.monotonic() + timeout
-    while not ready(sc, spec):
+    while not ready(environment, spec):
         if time.monotonic() > deadline:
             print(f"agents not in the world after {timeout:.0f} s; last log lines:")
-            log_tail(sc)
-            down(sc)
+            log_tail(environment)
+            down(environment)
             return 1
         time.sleep(3)
-    print(f"{sc['name']} up. GUI: `simops gui <scenario>`, stop: `simops down <scenario>`", flush=True)
+    print(
+        f"{environment['name']} up. GUI: `simops gui <environment>`, stop: `simops down <environment>`", flush=True
+    )
     return 0
 
 
-def down(sc: dict) -> int:
-    """Stop and remove the scenario's containers."""
+def down(environment: dict) -> int:
+    """Stop and remove the containers of the environment's session."""
     # DockerCompose.stop() leaves orphans: services dropped from a rebuilt bundle must go too
     return subprocess.run(
-        [*project(sc).docker_compose_command(), "down", "--remove-orphans"], check=False
+        [*project(environment).docker_compose_command(), "down", "--remove-orphans"], check=False
     ).returncode
 
 
-def run(sc: dict, timeout: float, command: list[str]) -> int:
+def run(environment: dict, timeout: float, command: list[str]) -> int:
     """Up, run the command against the sim, down whatever happens."""
-    if up(sc, timeout):
+    if up(environment, timeout):
         return 1
     try:
-        return subprocess.run(command, env=os.environ | host_env(sc), check=False).returncode
+        return subprocess.run(command, env=os.environ | host_env(environment), check=False).returncode
     finally:
-        down(sc)
+        down(environment)
 
 
 app = typer.Typer(help=__doc__, no_args_is_help=True, add_completion=False, rich_markup_mode=None)
-Scenario = Annotated[Path, typer.Argument(help="scenario YAML file")]
+Environment = Annotated[Path, typer.Argument(help="environment YAML file")]
 Timeout = Annotated[float, typer.Option(help="seconds to wait for the agents")]
 
 
 @app.command("build")
-def build_cmd(scenario: Scenario) -> None:
+def build_cmd(environment: Environment) -> None:
     """Write the bundle to build/<name>/."""
-    sc = load(scenario)
-    build(sc)
-    print(ROOT / "build" / sc["name"])
+    loaded = load(environment)
+    build(loaded)
+    print(ROOT / "build" / loaded["name"])
 
 
 @app.command("up")
-def up_cmd(scenario: Scenario, timeout: Timeout = 300) -> None:
+def up_cmd(environment: Environment, timeout: Timeout = 300) -> None:
     """Start and wait until the agents are in the world."""
-    raise typer.Exit(up(load(scenario), timeout))
+    raise typer.Exit(up(load(environment), timeout))
 
 
 @app.command("down")
-def down_cmd(scenario: Scenario) -> None:
+def down_cmd(environment: Environment) -> None:
     """Stop."""
-    raise typer.Exit(down(load(scenario)))
+    raise typer.Exit(down(load(environment)))
 
 
-@app.command("env")
-def env_cmd(scenario: Scenario) -> None:
+@app.command("host-env")
+def host_env_cmd(environment: Environment) -> None:
     """Print exports for gz and ROS on the host."""
-    print("\n".join(f"export {k}='{v}'" for k, v in host_env(load(scenario)).items()))
+    print("\n".join(f"export {k}='{v}'" for k, v in host_env(load(environment)).items()))
 
 
 @app.command("gui")
-def gui_cmd(scenario: Scenario) -> None:
-    """Native gz GUI attached to the running scenario."""
-    env = os.environ | host_env(load(scenario))
+def gui_cmd(environment: Environment) -> None:
+    """Native gz GUI attached to the environment's running session."""
+    env = os.environ | host_env(load(environment))
     raise typer.Exit(subprocess.run(["gz", "sim", "-g"], env=env, check=False).returncode)
 
 
 # the command after `--` goes through untouched, whatever flags it has
 @app.command("run", context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
-def run_cmd(ctx: typer.Context, scenario: Scenario, timeout: Timeout = 300) -> None:
+def run_cmd(ctx: typer.Context, environment: Environment, timeout: Timeout = 300) -> None:
     """Up, run the command after --, down."""
-    raise typer.Exit(run(load(scenario), timeout, ctx.args))
+    raise typer.Exit(run(load(environment), timeout, ctx.args))
 
 
 if __name__ == "__main__":

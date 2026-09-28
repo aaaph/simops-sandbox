@@ -1,11 +1,6 @@
-# bundle Specification
+# Spec Delta
 
-## Purpose
-
-`build` turns an environment into a bundle: a self-describing directory with everything plain
-`docker compose` needs to run the simulation, produced without starting anything.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Bundle contents
 `simops build <environment>` SHALL write the bundle to `build/<name>/` and print its path, without
@@ -46,19 +41,3 @@ width is used.
 #### Scenario: Same seed, same room
 - **WHEN** the same environment is built twice
 - **THEN** both `worlds/room.sdf` files are identical
-
-### Requirement: Merged bridge configuration
-`bridge.yaml` SHALL be the union of every agent's platform bridge entries, each entry once.
-
-#### Scenario: Two agents on one platform with namespaces
-- **WHEN** two agents use the same platform with `namespaces: true`
-- **THEN** `bridge.yaml` has each agent's entries under its own prefix and `/clock` once
-
-### Requirement: Bundle runs on the building machine
-The bundle's `compose.yaml` SHALL be runnable with plain `docker compose -f build/<name>/compose.yaml up`
-on the machine that built it. It references this repository's Dockerfiles as build contexts, so
-it is not portable to other machines.
-
-#### Scenario: Plain compose
-- **WHEN** a bundle is started with `docker compose -f build/<name>/compose.yaml up -d`
-- **THEN** the same services start as with `simops up`

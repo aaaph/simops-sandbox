@@ -1,11 +1,6 @@
-# agent-interface Specification
+# Spec Delta
 
-## Purpose
-
-The topics user code sees: what each agent publishes and consumes, and how names change when
-several agents share one simulation.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Agent topics come from the platform and the autopilot
 Each agent's topics on the ROS 2 bus SHALL be exactly the entries of its platform's
@@ -26,16 +21,3 @@ Known gap: `/ground_truth` is named like a hardware topic, not kept apart from t
 #### Scenario: One clock
 - **WHEN** an environment has several agents
 - **THEN** there is exactly one `/clock` topic, not prefixed
-
-### Requirement: Namespaces
-With `namespaces: true`, every topic of an agent — gz and ROS, bridged and PX4 — SHALL be under
-`/<agent>/`, except `/clock`. With `namespaces: false` topics SHALL keep their platform names.
-TF frame ids SHALL NOT be prefixed (known gap).
-
-#### Scenario: Namespaced rover
-- **WHEN** agent `rover2` runs with `namespaces: true`
-- **THEN** its topics are `/rover2/scan`, `/rover2/scan/points`, `/rover2/ground_truth` and `/rover2/fmu/...`
-
-#### Scenario: Single agent without namespaces
-- **WHEN** `rover_room.yaml` runs with `namespaces: false`
-- **THEN** the topics are `/scan`, `/ground_truth` and `/fmu/...` with no prefix

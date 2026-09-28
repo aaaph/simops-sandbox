@@ -1,4 +1,4 @@
-# What cannot be separated from this body: how an autopilot drives it. A scenario
+# What cannot be separated from this body: how an autopilot drives it. An environment
 # picks the platform and the autopilot's firmware; the rest follows from here.
 autopilot:
   px4:

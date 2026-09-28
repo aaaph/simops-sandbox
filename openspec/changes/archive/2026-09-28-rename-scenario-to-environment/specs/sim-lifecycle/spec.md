@@ -1,11 +1,11 @@
-# sim-lifecycle Specification
+# Spec Delta
 
-## Purpose
+## RENAMED Requirements
 
-Starting, stopping and using an environment's session as a disposable dependency: `up` means the
-agents are in a running world, and a failed or finished run leaves nothing behind.
+- FROM: `### Requirement: Scenarios are isolated`
+- TO: `### Requirement: Environments are isolated`
 
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Up returns when the simulation is ready
 `simops up <environment>` SHALL build the bundle, start it, and return success only once every

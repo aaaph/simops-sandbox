@@ -14,7 +14,7 @@ need facts only simops knows, and today none of them is written down:
 
 ## What Changes
 
-- Every bundle SHALL contain `manifest.yaml`: the scenario it was built from (path and content
+- Every bundle SHALL contain `manifest.yaml`: the environment it was built from (path and content
   hash), the simops revision, the PX4 ref, the world name and its geographic origin, and per
   agent its platform, start pose in the world frame, topic prefix, PX4 instance and MAVLink
   ports.

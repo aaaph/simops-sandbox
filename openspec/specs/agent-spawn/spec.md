@@ -9,10 +9,10 @@ and each agent's autopilot attaches only to an agent that is already there.
 
 ### Requirement: Agents are added to the running world
 The world SHALL start without agents. Once it runs, each agent SHALL be added to it under its
-scenario name, from its platform's model, at its scenario pose.
+environment name, from its platform's model, at its environment pose.
 
 #### Scenario: Agent added under its name
-- **WHEN** the scenario has agent `rover1` at `[0, 0, 0.2]`
+- **WHEN** the environment has agent `rover1` at `[0, 0, 0.2]`
 - **THEN** the running world contains a model named `rover1` at that pose
 
 ### Requirement: Spawn verifies presence, not the reply

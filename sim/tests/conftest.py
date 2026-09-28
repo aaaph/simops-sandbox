@@ -16,7 +16,7 @@ BUILD = Path(__file__).resolve().parents[2] / "build"
 def remove_new_bundles() -> Iterator[None]:
     """Remove the build/<name>/ bundles a test created; bundles that were there before stay.
 
-    A scenario someone keeps up needs its bundle for `down`, so only new ones go. Autouse
+    A session someone keeps up needs its bundle for `down`, so only new ones go. Autouse
     fixtures are set up first and torn down last, after a test's own `down`.
     """
     before = set(BUILD.iterdir()) if BUILD.exists() else set()

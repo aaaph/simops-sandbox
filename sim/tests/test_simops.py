@@ -1,4 +1,4 @@
-"""A scenario turns into a bundle: world with the agents in it, merged bridge, compose."""
+"""An environment turns into a bundle: world with the agents in it, merged bridge, compose."""
 
 import math
 import os
@@ -11,7 +11,7 @@ import yaml
 from simops import build, default_tag, host_env, load, parse_tags, parse_version, quaternion
 
 ROOT = Path(__file__).resolve().parents[2]
-SCENARIO = ROOT / "scenarios/rover_room.yaml"
+ENVIRONMENT = ROOT / "environments/rover_room.yaml"
 RC1 = "fca3df865af36124a28c9d607e850f111dbaaea9"  # the commit v1.18.0-rc1 points to
 
 
@@ -22,7 +22,7 @@ def no_network(monkeypatch):
 
 
 def test_rover_room_bundle():
-    spec = build(load(SCENARIO))
+    spec = build(load(ENVIRONMENT))
     bundle = ROOT / "build/rover_room"
     assert (bundle / "platforms/rover_differential_lidar_px4/model.sdf").exists()
     # its meshes come from the plain platform, model://rover_differential_lidar/meshes/...
@@ -47,20 +47,20 @@ def test_rover_room_bundle():
         "/scan/points",
         "/ground_truth",
     }
-    # every gz peer in the scenario shares one partition, named after it
+    # every gz peer in the session shares one partition, named after it
     parts = {s["environment"]["GZ_PARTITION"] for n, s in spec["services"].items() if n != "zenoh-router"}
     assert parts == {"rover_room"}
 
 
 def test_two_agents_namespaced(tmp_path):
-    sc = yaml.safe_load(SCENARIO.read_text())
-    sc |= {"name": "rover_pair", "namespaces": True}
-    sc["agents"]["rover2"] = {**sc["agents"]["rover1"], "pose": [2, 0, 0.2]}
+    doc = yaml.safe_load(ENVIRONMENT.read_text())
+    doc |= {"name": "rover_pair", "namespaces": True}
+    doc["agents"]["rover2"] = {**doc["agents"]["rover1"], "pose": [2, 0, 0.2]}
     path = tmp_path / "pair.yaml"
-    sc["agents"]["rover1"]["platform"] = sc["agents"]["rover2"]["platform"] = str(
+    doc["agents"]["rover1"]["platform"] = doc["agents"]["rover2"]["platform"] = str(
         ROOT / "platforms/rover_differential_lidar_px4"
     )
-    path.write_text(yaml.safe_dump(sc))
+    path.write_text(yaml.safe_dump(doc))
 
     spec = build(load(path))
     bundle = ROOT / "build/rover_pair"
@@ -84,29 +84,29 @@ def test_two_agents_namespaced(tmp_path):
 
 def variant(tmp_path: Path, name: str, **keys) -> Path:
     """rover_room with some keys replaced, written to tmp_path; the platform path stays absolute."""
-    sc = yaml.safe_load(SCENARIO.read_text()) | {"name": name} | keys
-    for agent in sc.get("agents", {}).values():
+    doc = yaml.safe_load(ENVIRONMENT.read_text()) | {"name": name} | keys
+    for agent in doc.get("agents", {}).values():
         agent["platform"] = str(ROOT / "platforms/rover_differential_lidar_px4")
     path = tmp_path / f"{name}.yaml"
-    path.write_text(yaml.safe_dump(sc))
+    path.write_text(yaml.safe_dump(doc))
     return path
 
 
-def test_scenario_defaults(tmp_path):
+def test_environment_defaults(tmp_path):
     path = variant(tmp_path, "defaults")
-    sc = yaml.safe_load(path.read_text())
-    del sc["namespaces"], sc["network"]
-    path.write_text(yaml.safe_dump(sc))
+    doc = yaml.safe_load(path.read_text())
+    del doc["namespaces"], doc["network"]
+    path.write_text(yaml.safe_dump(doc))
     loaded = load(path)
     assert loaded["namespaces"] is False
     assert loaded["network"]["router_port"] == 7447
 
 
-def test_paths_relative_to_scenario_file(tmp_path, monkeypatch):
-    sc = yaml.safe_load(SCENARIO.read_text())
+def test_paths_relative_to_environment_file(tmp_path, monkeypatch):
+    doc = yaml.safe_load(ENVIRONMENT.read_text())
     platform = ROOT / "platforms/rover_differential_lidar_px4"
-    sc["agents"]["rover1"]["platform"] = os.path.relpath(platform, tmp_path)
-    (tmp_path / "rel.yaml").write_text(yaml.safe_dump(sc))
+    doc["agents"]["rover1"]["platform"] = os.path.relpath(platform, tmp_path)
+    (tmp_path / "rel.yaml").write_text(yaml.safe_dump(doc))
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
     monkeypatch.chdir(elsewhere)
@@ -120,9 +120,9 @@ def test_several_agents_need_namespaces(tmp_path):
 
 
 def test_old_robots_key(tmp_path):
-    sc = yaml.safe_load(SCENARIO.read_text())
+    doc = yaml.safe_load(ENVIRONMENT.read_text())
     path = tmp_path / "old.yaml"
-    path.write_text(yaml.safe_dump({**sc, "robots": sc.pop("agents")}))
+    path.write_text(yaml.safe_dump({**doc, "robots": doc.pop("agents")}))
     with pytest.raises(SystemExit, match="agents:"):
         load(path)
 
@@ -152,7 +152,7 @@ def test_world_without_name(tmp_path):
 
 
 def test_compose_wiring():
-    spec = build(load(SCENARIO))
+    spec = build(load(ENVIRONMENT))
     services = spec["services"]
     # the world restarting takes the agents with it: spawn adds them again, PX4 reattaches
     for name in ("spawn", "px4-rover1"):
@@ -163,7 +163,7 @@ def test_compose_wiring():
 
 
 def test_host_env(tmp_path):
-    env = host_env(load(SCENARIO))
+    env = host_env(load(ENVIRONMENT))
     assert env["GZ_PARTITION"] == "rover_room"
     assert env["GZ_TRANSPORT_IMPLEMENTATION"] == "zenoh"
     for key in ("GZ_TRANSPORT_ZENOH_CONFIG_OVERRIDE", "ZENOH_CONFIG_OVERRIDE"):
@@ -242,9 +242,9 @@ def test_px4_keys_accepted(tmp_path, px4):
 
 def test_no_autopilot_key(tmp_path):
     path = variant(tmp_path, "noautopilot")
-    sc = yaml.safe_load(path.read_text())
-    del sc["autopilot"]
-    path.write_text(yaml.safe_dump(sc))
+    doc = yaml.safe_load(path.read_text())
+    del doc["autopilot"]
+    path.write_text(yaml.safe_dump(doc))
     assert load(path)["autopilot"] == {"px4": {}}
 
 
