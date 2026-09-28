@@ -39,8 +39,9 @@ directory of the environment file, not the current working directory.
 - **THEN** the platform resolves to `<environment dir>/../platforms/<p>`
 
 ### Requirement: World source
-The world SHALL be given either as `room` — generated from `seed`, `size` and `obstacles` — or
-as `file`, a path to an SDF world.
+The world SHALL be given as exactly one world source: `room` — generated from `seed`, `size` and
+`obstacles` — or `file`, a path to an SDF world. Giving both, or neither, SHALL fail loading with a
+message naming `room` and `file`.
 
 #### Scenario: Generated room
 - **WHEN** the world is `room: {seed: 42, size: [20, 16]}`
@@ -49,6 +50,10 @@ as `file`, a path to an SDF world.
 #### Scenario: Ready-made world
 - **WHEN** the world is `file: ../worlds/<w>.sdf`
 - **THEN** the environment's world is that file
+
+#### Scenario: Both room and file
+- **WHEN** the world sets both `room` and `file`
+- **THEN** loading fails with a message naming `room` and `file`
 
 ### Requirement: Agents
 Each entry of `agents` SHALL name one agent — its key is the agent's name in the simulation —
@@ -71,3 +76,29 @@ fail with a message saying so, before anything is built or started.
 #### Scenario: Two agents without namespaces
 - **WHEN** an environment with two agents and `namespaces: false` is loaded
 - **THEN** simops exits with an error naming `namespaces: true` and builds nothing
+
+### Requirement: Environment path on the command line
+The environment path given to a simops command SHALL be resolved against the directory the
+command is run from, both for the `simops` command and for `pixi run simops` from any directory
+of the project.
+
+#### Scenario: Relative path from a subdirectory
+- **WHEN** `simops build rover_room.yaml` runs in `environments/`
+- **THEN** it builds `environments/rover_room.yaml`
+
+#### Scenario: Through pixi from a subdirectory
+- **WHEN** `pixi run simops build rover_room.yaml` runs in `environments/`
+- **THEN** it builds `environments/rover_room.yaml`
+
+### Requirement: Unknown keys are rejected
+Loading SHALL fail on a key an environment does not define, at any level (the environment, its
+world, an agent, `autopilot.px4`, `network`), with a message naming the key and where it is.
+The keys `robots` and `autopilot.px4.ref` keep their own messages naming their replacements.
+
+#### Scenario: Misspelled key
+- **WHEN** an environment sets `namespace: true` instead of `namespaces`
+- **THEN** loading fails with a message naming `namespace`
+
+#### Scenario: Unknown agent key
+- **WHEN** an agent sets `position:` instead of `pose:`
+- **THEN** loading fails with a message naming `position` and the agent

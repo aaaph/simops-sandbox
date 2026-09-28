@@ -40,7 +40,7 @@ Depends on `baseline-simops` being archived, which creates `sim-lifecycle`.
 
 ## Impact
 
-- `sim/simops.py`: `up`/`run` check the compose project and the port before `docker compose up`;
+- `src/simops/session.py`: `up`/`run` check the compose project and the port before `docker compose up`;
   new `--replace` flag.
-- `sim/tests/`: unit tests for the checks; the Docker suite gets the stale-session case.
+- `tests/simops/`: unit tests for the checks; the Docker suite gets the stale-session case.
 - AGENTS.md: the cleanup paragraph mentions `--replace`.

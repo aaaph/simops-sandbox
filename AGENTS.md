@@ -15,7 +15,7 @@ rerun MCP server's own viewer must stay up.
 
 **Words and principles** (platform, agent, environment, bundle, session, the reserved
 "scenario", sim-only, …) are defined once, in the `context` of `openspec/config.yaml`; use them as
-defined there. `sim/simops.py` builds an environment (`environments/rover_room.yaml`) into a bundle
+defined there. `simops` builds an environment (`environments/rover_room.yaml`) into a bundle
 in `build/<name>/` (`compose.yaml`, the merged `bridge.yaml`, the world with the agents placed in
 it, the platforms it uses) and runs the bundle as a session, with `GZ_PARTITION=<name>`.
 
@@ -24,6 +24,12 @@ it, the platforms it uses) and runs the bundle as a session, with `GZ_PARTITION=
     pixi run simops host-env environments/rover_room.yaml | source   # gz/ROS on the host (bash: eval "$(...)")
     pixi run simops run environments/rover_room.yaml -- pytest tests/   # up, command, down whatever happens
     pixi run simops down environments/rover_room.yaml
+
+`simops` and `worldgen` are commands installed (editable) into the pixi env: `pixi run simops …`
+from any directory of the project, or plain `simops …` inside `pixi shell`; relative paths are
+resolved where the command runs. Code: `src/simops/` (one module per glossary entity:
+`environment`, `world`, `platform`, `agent`, `firmware`, `bundle`, `session`, `cli`),
+`src/worldgen/` (`room`: generate a room, `worldgen room --help`), tests in `tests/`.
 
 **Clean up after yourself:** containers you started to check or verify something, you stop —
 `simops down`, or `simops run`, which does it for you. Leave running only what the user asked to
@@ -36,6 +42,10 @@ writes), `sim-lifecycle` (`up`/`down`/`run`), `agent-spawn` (first the world, th
 `pixi run test` (unit, seconds) and `pixi run pytest -m docker` (starts sessions, minutes).
 
 How it is done, beyond the specs:
+- Entities are pydantic models (`extra="forbid"`): an invalid environment fails `load` with one
+  `InvalidEnvironment` naming the file, the key path and why; the CLI prints it and exits 1.
+- simops measures the platform's width (`Platform.width()`) and calls `worldgen.room.generate`
+  with the clearance; worldgen knows nothing of platforms or agents.
 - The CLI is Typer; the compose project is driven through testcontainers' `DockerCompose`
   (`up --wait`, exec, logs), except `down`, which adds `--remove-orphans` that `stop()` lacks.
   testcontainers' logger is silenced: simops prints the failures itself.
@@ -127,7 +137,7 @@ crash), every container in its network namespace is left without network:
 Direction: a generic tool, not robot software — a Python package (library, `simops` CLI, pytest
 helper) taken as a dev-dependency by robot software repositories, the rover here staying as the example. Done:
 environment format, `agent.yaml`, several agents with optional namespaces, bundle,
-`up/down/run/env/gui` (`sim/simops.py`). Next, in this order, each when
+`up/down/run/host-env/gui` (`src/simops/`). Next, in this order, each when
 something needs it:
 - `simops.testing.sim_session(environment)` — pytest fixture over up/down, per-session name and port
   so tests run in parallel; agent helpers (arm, drive, ground truth) on top.

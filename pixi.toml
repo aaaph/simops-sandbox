@@ -15,8 +15,6 @@ RMW_IMPLEMENTATION = "rmw_zenoh_cpp"
 GZ_SIM_RESOURCE_PATH = "$PIXI_PROJECT_ROOT/platforms"
 
 [tasks]
-# environments in Docker: world + agents + autopilot from one YAML, see sim/simops.py
-simops = "python sim/simops.py"
 lint = "ruff check --fix --show-fixes && ty check"
 test = "pytest"
 # every pre-commit hook, ruff format included: the first run fixes (and exits 1 if it did),
@@ -33,3 +31,9 @@ pytest = ">=9.1.1,<10"
 pre-commit = ">=4.6.2,<5"
 typer = ">=0.27.2,<0.28"
 testcontainers = ">=4.14.1,<5"
+pydantic = ">=2.13.5,<3"
+pyyaml = ">=6.0.3,<7"
+
+[pypi-dependencies]
+# src/simops and src/worldgen, editable: the `simops` and `worldgen` commands run where they are called
+simops-sandbox = { path = ".", editable = true }

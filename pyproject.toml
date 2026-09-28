@@ -1,0 +1,17 @@
+[project]
+name = "simops-sandbox"
+version = "0.1.0"
+description = "simops: a simulation (gz Jetty world + agents + PX4 SITL) in Docker; worldgen: world generators"
+requires-python = ">=3.12"
+dependencies = ["pydantic>=2", "pyyaml", "testcontainers>=4.14", "typer>=0.27"]
+
+[project.scripts]
+simops = "simops.cli:app"
+worldgen = "worldgen.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/simops", "src/worldgen"]

@@ -9,7 +9,7 @@ import pytest
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-BUILD = Path(__file__).resolve().parents[2] / "build"
+BUILD = Path(__file__).resolve().parents[1] / "build"
 
 
 @pytest.fixture(autouse=True)

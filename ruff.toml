@@ -85,16 +85,16 @@ line-ending = "auto"
 [lint.per-file-ignores]
 # ignore unused imports in __init__.py files
 "__init__.py" = ["F401"]
-"sim/simops.py" = [
+"src/simops/*.py" = [
     "T201", # A CLI reports by printing
-    "S603", # It runs docker and gz, or the command its user passed after --
-    "S607", # `docker` and `gz` are looked up on PATH on purpose
+    "S603", # It runs docker, git and gz, or the command its user passed after --
+    "S607", # `docker`, `git` and `gz` are looked up on PATH on purpose
 ]
-"sim/tests/test_simops_docker.py" = [
+"tests/simops/test_session_docker.py" = [
     "S603", # It runs docker and ros2 with constant arguments
     "S607", # `docker` and `ros2` are looked up on PATH on purpose
 ]
-"sim/generate_temp_room_world.py" = [
+"src/worldgen/*.py" = [
     "T201",    # A CLI generator reports what it generated
     "S311",    # Map layout wants a seeded RNG, not a cryptographic one
     "S101",    # The reachability assert is the check that the map is usable
@@ -110,6 +110,10 @@ line-ending = "auto"
     "S311",    # Standard pseudo-random generators are not suitable for cryptographic purposes
     "D103",    # Missing docstring in public function
 ]
+
+[lint.flake8-type-checking]
+# pydantic reads field annotations at runtime
+runtime-evaluated-base-classes = ["pydantic.BaseModel"]
 
 [lint.isort]
 known-third-party = ["pydbow3"]

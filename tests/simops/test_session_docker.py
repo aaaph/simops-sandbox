@@ -8,13 +8,16 @@ collides with a rover_room someone keeps up nor with another test.
 import os
 import shutil
 import subprocess
-import sys
 import time
 from pathlib import Path
 
 import pytest
 import yaml
-from simops import build, down, host_env, load, pose_stamp, project, ready, run, up
+
+from simops.bundle import build
+from simops.environment import Environment
+from simops.session import Session
+from worldgen import room
 
 pytestmark = pytest.mark.docker
 
@@ -23,7 +26,7 @@ ENVIRONMENT = ROOT / "environments/rover_room.yaml"
 TIMEOUT = 300
 
 
-def environment(tmp_path: Path, name: str, port: int, agents: list[str], namespaces: bool = False) -> dict:
+def environment(tmp_path: Path, name: str, port: int, agents: list[str], namespaces: bool = False) -> Session:
     """rover_room renamed, on its own port, with the given agents 2 m apart."""
     sim = yaml.safe_load(ENVIRONMENT.read_text())
     platform = str(ROOT / "platforms/rover_differential_lidar_px4")
@@ -35,13 +38,13 @@ def environment(tmp_path: Path, name: str, port: int, agents: list[str], namespa
     }
     path = tmp_path / f"{name}.yaml"
     path.write_text(yaml.safe_dump(sim))
-    return load(path)
+    return Session(Environment.load(path))
 
 
-def containers(sim: dict) -> list[str]:
+def containers(sim: Session) -> list[str]:
     """Ids of every container of the environment's session, running or not."""
     out = subprocess.run(
-        ["docker", "ps", "-aq", "--filter", f"label=com.docker.compose.project={sim['name']}"],
+        ["docker", "ps", "-aq", "--filter", f"label=com.docker.compose.project={sim.environment.name}"],
         capture_output=True,
         text=True,
         check=True,
@@ -49,23 +52,23 @@ def containers(sim: dict) -> list[str]:
     return out.stdout.split()
 
 
-def started_at(sim: dict, service: str) -> str:
+def started_at(sim: Session, service: str) -> str:
     """When the service's container last started."""
-    cid = project(sim).get_container(service, include_all=True).ID
+    cid = sim.project().get_container(service, include_all=True).ID
     assert cid, f"no container for {service}"
     return subprocess.run(
         ["docker", "inspect", "-f", "{{.State.StartedAt}}", cid], capture_output=True, text=True, check=True
     ).stdout.strip()
 
 
-def ros_topics(sim: dict, expected: set[str], timeout: float = 60) -> set[str]:
+def ros_topics(sim: Session, expected: set[str], timeout: float = 60) -> set[str]:
     """ROS topics the host sees through the session's router, once `expected` are among them."""
     topics: set[str] = set()
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         out = subprocess.run(
             ["ros2", "topic", "list", "--no-daemon"],
-            env=os.environ | host_env(sim),
+            env=os.environ | sim.host_env(),
             capture_output=True,
             text=True,
             check=False,
@@ -83,15 +86,15 @@ def cleanup():
     started: list[dict] = []
     yield started
     for sim in started:
-        down(sim)
+        sim.down()
 
 
 def test_up_and_down(tmp_path, cleanup):
     sim = environment(tmp_path, "t_updown", 7461, ["rover1"])
     cleanup.append(sim)
-    assert up(sim, TIMEOUT) == 0
-    assert ready(sim, build(sim))  # rover1 in the world, sim time advancing
-    assert down(sim) == 0
+    assert sim.up(TIMEOUT) == 0
+    assert sim.ready(build(sim.environment))  # rover1 in the world, sim time advancing
+    assert sim.down() == 0
     assert containers(sim) == []
 
 
@@ -101,7 +104,7 @@ def test_failed_up_leaves_nothing(tmp_path, cleanup):
     shutil.copytree(ROOT / "platforms/rover_differential_lidar_px4", broken)
     (broken / "model.sdf").write_text('<sdf version="1.9">not a model</sdf>')
     world = tmp_path / "room.sdf"  # a ready-made world: the generator cannot measure the broken model
-    subprocess.run([sys.executable, ROOT / "sim/generate_temp_room_world.py", "-o", world], check=True, cwd=ROOT)
+    room.generate(world, clearance=0.9)
     sim = yaml.safe_load(ENVIRONMENT.read_text())
     sim |= {
         "name": "t_timeout",
@@ -111,35 +114,35 @@ def test_failed_up_leaves_nothing(tmp_path, cleanup):
     }
     path = tmp_path / "t_timeout.yaml"
     path.write_text(yaml.safe_dump(sim))
-    sim = load(path)
+    sim = Session(Environment.load(path))
     cleanup.append(sim)
-    assert up(sim, timeout=1) != 0
+    assert sim.up(timeout=1) != 0
     assert containers(sim) == []
 
 
 def test_ready_on_first_check_ignores_timeout(tmp_path, cleanup):
     sim = environment(tmp_path, "t_quick", 7468, ["rover1"])
     cleanup.append(sim)
-    assert up(sim, timeout=1) == 0
+    assert sim.up(timeout=1) == 0
 
 
 def test_run_passes_exit_code_and_cleans_up(tmp_path, cleanup):
     sim = environment(tmp_path, "t_run", 7463, ["rover1"])
     cleanup.append(sim)
-    assert run(sim, TIMEOUT, ["sh", "-c", "exit 3"]) == 3
+    assert sim.run(TIMEOUT, ["sh", "-c", "exit 3"]) == 3
     assert containers(sim) == []
 
 
 def test_world_restart_brings_agents_back(tmp_path, cleanup):
     sim = environment(tmp_path, "t_restart", 7464, ["rover1"])
     cleanup.append(sim)
-    assert up(sim, TIMEOUT) == 0
+    assert sim.up(TIMEOUT) == 0
     px4_before = started_at(sim, "px4-rover1")
     assert (
-        subprocess.run([*project(sim).docker_compose_command(), "restart", "world"], check=False).returncode == 0
+        subprocess.run([*sim.project().docker_compose_command(), "restart", "world"], check=False).returncode == 0
     )
     deadline = time.monotonic() + TIMEOUT
-    while pose_stamp(sim, "room", ["rover1"]) is None:
+    while sim.pose_stamp("room") is None:
         assert time.monotonic() < deadline, "rover1 not back in the world"
         time.sleep(3)
     assert started_at(sim, "px4-rover1") != px4_before
@@ -148,7 +151,7 @@ def test_world_restart_brings_agents_back(tmp_path, cleanup):
 def test_namespaces(tmp_path, cleanup):
     sim = environment(tmp_path, "t_pair", 7465, ["rover1", "rover2"], namespaces=True)
     cleanup.append(sim)
-    assert up(sim, TIMEOUT) == 0
+    assert sim.up(TIMEOUT) == 0
     expected = {"/rover1/scan", "/rover2/scan", "/clock"}
     topics = ros_topics(sim, expected | {"/rover2/fmu/out/vehicle_status"})
     assert expected <= topics
@@ -160,8 +163,8 @@ def test_environments_isolated(tmp_path, cleanup):
     a = environment(tmp_path, "t_iso_a", 7466, ["alpha"], namespaces=True)
     b = environment(tmp_path, "t_iso_b", 7467, ["beta"], namespaces=True)
     cleanup += [a, b]
-    assert up(a, TIMEOUT) == 0
-    assert up(b, TIMEOUT) == 0
+    assert a.up(TIMEOUT) == 0
+    assert b.up(TIMEOUT) == 0
     seen_a = ros_topics(a, {"/alpha/scan"})
     seen_b = ros_topics(b, {"/beta/scan"})
     assert "/alpha/scan" in seen_a

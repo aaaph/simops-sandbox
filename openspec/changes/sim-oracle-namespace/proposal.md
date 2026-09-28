@@ -39,7 +39,7 @@ Depends on `baseline-simops` being archived, which creates `agent-interface`.
 
 - `platforms/rover_differential_lidar_px4/model.sdf` (`<odom_topic>` of the ground-truth
   odometry publisher) and `bridge.yaml`.
-- `sim/simops.py` namespacing: `/sim/<agent>/...` topics are prefixed with the agent name even
+- `src/simops/bundle.py` namespacing: `/sim/<agent>/...` topics are prefixed with the agent name even
   with `namespaces: false`, and never get a second `/<agent>/` in front.
-- `sim/tests/test_simops.py` topic expectations; AGENTS.md mentions of `/ground_truth`.
+- `tests/simops/test_bundle.py` topic expectations; AGENTS.md mentions of `/ground_truth`.
 - Host code that subscribes to `/ground_truth` must switch to `/sim/<agent>/ground_truth`.

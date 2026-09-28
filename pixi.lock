@@ -11,6 +11,8 @@ environments:
     channels:
     - url: https://prefix.dev/robostack-lyrical/
     - url: https://prefix.dev/conda-forge/
+    indexes:
+    - https://pypi.org/simple
     packages:
       p1:
       - conda: https://prefix.dev/conda-forge/noarch/_python_abi3_support-1.0-hd8ed1ab_3.conda
@@ -759,6 +761,7 @@ environments:
       - conda: https://prefix.dev/robostack-lyrical/osx-arm64/ros2-yaml-cpp-vendor-9.2.1-np2py314h2e2674b_25.conda
       - conda: https://prefix.dev/robostack-lyrical/osx-arm64/ros2-zenoh-cpp-vendor-0.10.5-np2py314h381a90a_25.conda
       - conda: https://prefix.dev/robostack-lyrical/osx-arm64/ros2-zstd-cmake-module-0.33.3-np2py314h2e2674b_25.conda
+      - pypi: ./
 packages:
 - conda: https://prefix.dev/conda-forge/noarch/_python_abi3_support-1.0-hd8ed1ab_3.conda
   sha256: 2a7204314663eeda5dec482a956f0e2eaf289bd5b9953eaaaad0e81aa64638f2
@@ -14164,3 +14167,11 @@ packages:
   run_exports: {}
   size: 29324
   timestamp: 1789510025484
+- pypi: ./
+  name: simops-sandbox
+  requires_dist:
+  - pydantic>=2
+  - pyyaml
+  - testcontainers>=4.14
+  - typer>=0.27
+  requires_python: '>=3.12'

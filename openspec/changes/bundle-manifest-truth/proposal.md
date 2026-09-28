@@ -40,7 +40,7 @@ Depends on `baseline-simops` being archived, which creates `bundle`.
 
 ## Impact
 
-- `sim/simops.py` (`build` writes the manifest), `sim/generate_temp_room_world.py` (writes the
+- `src/simops/bundle.py` (`build` writes the manifest), `src/worldgen/room.py` (writes the
   occupancy grid it already computes for its reachability check).
-- `sim/tests/test_simops.py`: manifest content, map matches the world's obstacles.
+- `tests/simops/test_bundle.py`: manifest content, map matches the world's obstacles.
 - AGENTS.md: the bundle paragraph lists the new files.
