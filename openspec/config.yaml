@@ -1,32 +1,81 @@
 schema: spec-driven
 
-# Project context (optional)
-# This is shown to AI when creating artifacts.
-# Add your tech stack, conventions, style guides, domain knowledge, etc.
-# Example:
-#   context: |
-#     Tech stack: TypeScript, React, Node.js
-#     We use conventional commits
-#     Domain: e-commerce platform
+# Shown to every propose/apply/archive: the project's language and principles. Specs are
+# behavior contracts written in this language; a term that carries behavior is defined by its
+# requirement and only named here.
+context: |
+  simops-sandbox: simops runs a simulation (gz Jetty world + agents + PX4 SITL) in Docker as a
+  dependency for robot software development, with the native gz GUI on macOS over zenoh. The
+  differential rover here is the example; simops is meant to become a generic tool.
 
-# Per-artifact rules (optional)
-# Add custom rules for specific artifacts.
-# Example:
-#   rules:
-#     proposal:
-#       - Keep proposals under 500 words
-#       - Always include a "Non-goals" section
-#     tasks:
-#       - Break tasks into chunks of max 2 hours
+  GLOSSARY. Two bounded contexts share a few words; each term belongs to one side.
 
-# Per-operation guidance (optional)
-# Add advisory guidance for how apply and archive work should be conducted.
-# This is separate from artifact rules above.
-# Example:
-#   operations:
-#     apply:
-#       guidance:
-#         - Keep test summaries concise
-#     archive:
-#       guidance:
-#         - Summarize the archive outcome before finishing
+  Simulation (simops):
+  - platform: a body type, platforms/<p>/ with model.sdf, bridge.yaml, agent.yaml (what cannot be
+    separated from the body, e.g. the PX4 airframe).
+  - agent: one body in the simulation, an instance of a platform, named in the environment, with
+    a start pose. Not a decision-making policy (the RL sense), not an AI coding agent.
+  - environment: the YAML file (environments/): world, agents, PX4 firmware, namespaces, router
+    port; describes no action. Spec: environment.
+  - bundle: an environment built for docker compose, build/<name>/. Spec: bundle.
+  - session: a running bundle, from `up` to `down`; one compose project, one gz partition.
+    Spec: sim-lifecycle.
+  - scenario: reserved for what happens in a session (task, world events, success criteria);
+    never the environment. OpenSpec's "#### Scenario:" blocks are the tool's own word.
+  - sim-only: channels no real robot has, /sim/* and /clock (target: /ground_truth moves under
+    /sim/ with the change sim-oracle-namespace).
+  - ground truth: the simulator's true state (pose, map, start pose), for evaluation only.
+  - sim control: what only the simulator can do (sessions, world events, time).
+  - PX4 firmware: `version` (a release tag), `commit` (a full SHA) or the default, resolved at
+    `build` to one commit. Spec: autopilot.
+
+  Robot software (the user's):
+  - robot software: the user's deployed stack (estimation, TF, planners, converters); never part
+    of simops.
+  - hardware interface: the topics and links a real robot gives (/scan, /fmu/*).
+  - operator interface: what a ground station or pilot does (arm, mode, mission), through reused
+    tools: MAVSDK, px4-ros2, QGC.
+  - judge: the user's test code that decides success from the agent's estimate and ground
+    truth; SITL-only, never deployed.
+
+  PRINCIPLES.
+  1. The simulation gives an agent exactly what real hardware gives; everything else is
+     sim-only and kept apart. Deployed robot software never reads sim-only channels.
+  2. The robot software stack is the user's; simops provides physics, autopilot, sensor bridges.
+  3. First the world, then the agents: at runtime the world starts empty and agents are added;
+     at build the world may know agent poses and sizes (to keep spawn areas free).
+  4. A platform holds what cannot be separated from the body; an environment only picks
+     platforms, poses and firmware.
+  5. Reuse real-world tools for the operator interface; simops builds only sim control and
+     ground truth.
+  6. The bundle is the artifact: plain docker compose runs it; simops' job is to build it.
+
+  STACK. PX4 1.18 and later on gz Jetty over zenoh, native macOS GUI (PX4 1.17 and earlier
+  compile as C++14 and would need a second, Harmonic + noVNC, stack). Python via pixi; CLI on
+  Typer; compose driven through testcontainers. Environment details and workarounds: AGENTS.md.
+
+  CONVENTIONS.
+  - Artifacts and code in English; conversation may be in any language.
+  - A behavior change goes through an OpenSpec change; small fixes and pure cleanups may be
+    plain commits.
+  - Unit tests (`pixi run test`) touch neither Docker nor the network nor an autopilot build.
+    Docker tests (`-m docker`) are meant to run on images that already exist; building images
+    is a separate step (not enforced yet).
+
+# Applied when the named artifact is written.
+rules:
+  proposal:
+    - Use the glossary's terms and no synonyms (not "robot" for an agent, not "scenario" for the
+      environment, "session" for the running thing).
+    - A new term enters the glossary in the same change that first uses it.
+  specs:
+    - Use the glossary's terms and no synonyms (not "robot" for an agent, not "scenario" for the
+      environment, "session" for the running thing).
+    - A term that carries behavior is defined by a requirement; the glossary only names it and
+      points to the spec.
+    - A new term enters the glossary in the same change that first uses it.
+  tasks:
+    - Unit tests touch neither Docker nor the network nor an autopilot build; anything that
+      needs them is a Docker test (`-m docker`) and says so in its verification.
+    - Docker tests run on images that already exist; a task that needs a new image says how it
+      is built, as its own step.

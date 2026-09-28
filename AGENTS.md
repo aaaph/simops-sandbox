@@ -13,12 +13,11 @@ rerun MCP server's own viewer must stay up.
 
 ## Docker sim: environments — world + agents + PX4 in containers, native macOS gz GUI over zenoh
 
-Words: an **environment** is one YAML file — world, autopilot firmware, agents (platform + pose),
-namespaces, router port, no action — see `environments/rover_room.yaml`. `sim/simops.py` builds it
-into a **bundle** in `build/<name>/` (`compose.yaml`, the merged `bridge.yaml`, the world with the
-agents placed in it, the platforms it uses) and runs the bundle as a **session**: its own compose
-project, with `GZ_PARTITION=<name>`. "Scenario" is kept for what happens in a session (a task,
-world events, success criteria), which simops does not describe yet.
+**Words and principles** (platform, agent, environment, bundle, session, the reserved
+"scenario", sim-only, …) are defined once, in the `context` of `openspec/config.yaml`; use them as
+defined there. `sim/simops.py` builds an environment (`environments/rover_room.yaml`) into a bundle
+in `build/<name>/` (`compose.yaml`, the merged `bridge.yaml`, the world with the agents placed in
+it, the platforms it uses) and runs the bundle as a session, with `GZ_PARTITION=<name>`.
 
     pixi run simops up environments/rover_room.yaml     # returns once every agent is in the world and sim time moves
     pixi run simops gui environments/rover_room.yaml    # native gz GUI, right partition and router
@@ -125,8 +124,8 @@ crash), every container in its network namespace is left without network:
 
 ## Planned: simops as a tool
 
-Direction: a generic tool, not robot code — a Python package (library, `simops` CLI, pytest
-helper) taken as a dev-dependency by robot repos, the rover here staying as the example. Done:
+Direction: a generic tool, not robot software — a Python package (library, `simops` CLI, pytest
+helper) taken as a dev-dependency by robot software repositories, the rover here staying as the example. Done:
 environment format, `agent.yaml`, several agents with optional namespaces, bundle,
 `up/down/run/env/gui` (`sim/simops.py`). Next, in this order, each when
 something needs it:
