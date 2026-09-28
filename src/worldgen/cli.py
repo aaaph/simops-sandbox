@@ -5,7 +5,7 @@ from typing import Annotated
 
 import typer
 
-from worldgen import room
+from worldgen import empty, room
 
 app = typer.Typer(no_args_is_help=True, add_completion=False, rich_markup_mode=None)
 
@@ -44,3 +44,13 @@ def room_cmd(
     except ValueError as e:
         raise typer.BadParameter(str(e)) from None
     print(summary)
+
+
+@app.command("empty")
+def empty_cmd(
+    *,
+    out: Annotated[Path, typer.Option("-o", "--out", help="SDF file to write")],
+    clearance: Annotated[float, typer.Option(help="narrowest gap a robot needs, metres (its width + margin)")],
+) -> None:
+    """Generate an open field: the ground and a start marker, no walls, no obstacles."""
+    print(empty.generate(out, clearance=clearance))

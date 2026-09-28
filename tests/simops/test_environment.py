@@ -7,7 +7,7 @@ import pytest
 import yaml
 
 from simops.environment import Environment, InvalidEnvironment
-from simops.world import RoomSpec, WorldFile
+from simops.world import EmptySpec, RoomSpec, WorldFile
 
 ROOT = Path(__file__).resolve().parents[2]
 ENVIRONMENT = ROOT / "environments/rover_room.yaml"
@@ -46,6 +46,8 @@ def test_world_sources(variant, tmp_path):
     sdf.write_text('<sdf version="1.9"><world name="ready"/></sdf>')
     ready = Environment.load(variant("filed", world={"file": str(sdf)}))
     assert ready.world.source == WorldFile(path=sdf)
+    empty = Environment.load(variant("emptied", world={"empty_world": None}))
+    assert empty.world.source == EmptySpec()
 
 
 def test_partial_pose(variant):
@@ -61,10 +63,13 @@ def test_partial_pose(variant):
             {"agents": {"rover1": {"platform": "x"}, "rover2": {"platform": "x"}}, "namespaces": False},
             "namespaces: true",
         ),
-        # a world source is exactly one of generate_room and file
-        ({"world": {"generate_room": {"seed": 1}, "file": "x.sdf"}}, r"`generate_room`.*`file`"),
-        ({"world": {}}, r"`generate_room`.*`file`"),
+        # a world source is exactly one of generate_room, file and empty_world
+        ({"world": {"generate_room": {"seed": 1}, "file": "x.sdf"}}, r"`generate_room`.*`file`.*`empty_world`"),
+        ({"world": {"empty_world": None, "file": "x.sdf"}}, r"`generate_room`.*`file`.*`empty_world`"),
+        ({"world": {}}, r"`generate_room`.*`file`.*`empty_world`"),
         ({"world": {"room": {"seed": 1}}}, r"`world\.room` is now `world\.generate_room`"),
+        ({"world": {"empty_world": {"obstacles": 5}}}, r"`world\.empty_world\.obstacles` is not a key"),
+        ({"world": {"empty_world": {"size": [12, 9]}}}, r"`world\.empty_world\.size` is not a key"),
         # unknown keys, at any level
         ({"namespace": True}, r"`namespace` is not a key"),
         ({"agents": {"rover1": {"platform": "x", "position": [0, 0]}}}, r"`agents\.rover1\.position` is not"),

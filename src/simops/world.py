@@ -1,4 +1,4 @@
-"""How an environment names its world: a room for worldgen to generate, or a ready-made SDF file."""
+"""How an environment names its world: a generated room, an open field, or a ready-made SDF file."""
 
 from pathlib import Path
 from typing import Any
@@ -24,6 +24,12 @@ class WorldFile(BaseModel):
     path: Path
 
 
+class EmptySpec(BaseModel):
+    """An open field: no walls, no obstacles, just the ground and the start marker."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
 class World(BaseModel):
     """The environment's `world:` -- exactly one world source."""
 
@@ -31,6 +37,7 @@ class World(BaseModel):
 
     generate_room: RoomSpec | None = None
     file: Path | None = None
+    empty_world: EmptySpec | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -38,6 +45,14 @@ class World(BaseModel):
         if isinstance(data, dict) and "room" in data:
             msg = "`world.room` is now `world.generate_room` (or give `file`)"
             raise ValueError(msg)
+        return data
+
+    @model_validator(mode="before")
+    @classmethod
+    def _bare_empty_world(cls, data: Any) -> Any:  # noqa: ANN401 -- pydantic hands in the raw YAML value
+        # `empty_world:` with nothing after the colon parses as None; tell that apart from omitted.
+        if isinstance(data, dict) and data.get("empty_world") is None and "empty_world" in data:
+            data["empty_world"] = {}
         return data
 
     @field_validator("file")
@@ -48,12 +63,17 @@ class World(BaseModel):
 
     @model_validator(mode="after")
     def _one_source(self) -> World:
-        if (self.generate_room is None) == (self.file is None):
-            msg = "give exactly one world source: `generate_room` or `file`"
+        given = sum(s is not None for s in (self.generate_room, self.file, self.empty_world))
+        if given != 1:
+            msg = "give exactly one world source: `generate_room`, `file` or `empty_world`"
             raise ValueError(msg)
         return self
 
     @property
-    def source(self) -> RoomSpec | WorldFile:
+    def source(self) -> RoomSpec | WorldFile | EmptySpec:
         """The world source this environment names."""
-        return self.generate_room if self.generate_room is not None else WorldFile(path=self.file or Path())
+        if self.generate_room is not None:
+            return self.generate_room
+        if self.empty_world is not None:
+            return self.empty_world
+        return WorldFile(path=self.file or Path())

@@ -71,6 +71,14 @@ def test_two_agents_namespaced(variant):
     assert ros.count("/clock") == 1
 
 
+def test_empty_world_is_open(variant):
+    bundle = build(Environment.load(variant("empty", world={"empty_world": None})))
+    sdf = ET.parse(bundle.dir / "worlds/room.sdf")
+    names = {m.get("name") for m in sdf.findall("world/model")}
+    assert {"start_marker", "ground_plane"} <= names
+    assert not any(n.startswith(("wall_", "obs_")) for n in names)
+
+
 def test_same_seed_same_room(variant):
     environment = Environment.load(variant("seeded"))
     first = (build(environment).dir / "worlds/room.sdf").read_bytes()

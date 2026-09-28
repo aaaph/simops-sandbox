@@ -13,8 +13,8 @@ from pydantic import BaseModel, ConfigDict
 from simops import ROOT
 from simops.agent import entity_factory
 from simops.environment import Environment
-from simops.world import WorldFile
-from worldgen import room
+from simops.world import EmptySpec, WorldFile
+from worldgen import empty, room
 
 if TYPE_CHECKING:
     from simops.firmware import PX4Firmware
@@ -212,6 +212,11 @@ def build(environment: Environment) -> Bundle:
     if isinstance(source, WorldFile):
         sdf = out / "worlds" / source.path.name
         shutil.copy(source.path, sdf)
+    elif isinstance(source, EmptySpec):
+        sdf = out / "worlds" / "room.sdf"
+        # ponytail: clearance from the first agent's platform; pass the widest if they differ a lot
+        first = next(iter(environment.agents.values())).platform
+        print(empty.generate(sdf, clearance=first.width() * 1.1), flush=True)
     else:
         sdf = out / "worlds" / "room.sdf"
         # ponytail: clearance from the first agent's platform; pass the widest if they differ a lot
