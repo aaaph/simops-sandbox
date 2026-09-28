@@ -5,6 +5,7 @@ import shutil
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import yaml
 from pydantic import BaseModel, ConfigDict
@@ -15,15 +16,23 @@ from simops.environment import Environment
 from simops.world import WorldFile
 from worldgen import room
 
+if TYPE_CHECKING:
+    from simops.firmware import PX4Firmware
+
 
 def zenoh_gz(port: int = 7447) -> str:
     """gz-transport's zenoh config: every peer goes through the router, no multicast."""
     return f'mode="peer";connect/endpoints=["tcp/localhost:{port}"];scouting/multicast/enabled=false'
 
 
-def compose(environment: Environment, world_stem: str, world_name: str, px4_ref: str, px4_commit: str) -> dict:
-    """Describe the environment as a compose file; paths are relative to the bundle directory."""
-    name, px4 = environment.name, environment.autopilot.px4
+def compose(
+    environment: Environment, world_stem: str, world_name: str, firmware: dict[PX4Firmware, tuple[str, str]]
+) -> dict:
+    """Describe the environment as a compose file; paths are relative to the bundle directory.
+
+    `firmware` maps each platform's PX4 firmware to what it resolved to: (tag or commit, commit).
+    """
+    name = environment.name
     gz = {"GZ_PARTITION": name, "GZ_TRANSPORT_ZENOH_CONFIG_OVERRIDE": zenoh_gz()}
     port = environment.network.router_port
 
@@ -48,17 +57,18 @@ def compose(environment: Environment, world_stem: str, world_name: str, px4_ref:
                 "context": str(ROOT),
                 "dockerfile": "infra/px4.Dockerfile",
                 "args": {
-                    "PX4_REPO": px4.repo,
-                    "PX4_REF": px4_ref,
+                    "PX4_REPO": spec.platform.px4.repo,
+                    "PX4_REF": firmware[spec.platform.px4.firmware][0],
                 },
             },
-            "image": f"simops-sandbox-px4:{px4_commit[:12]}",  # one image per commit, however it was named
+            # one image per commit, however it was named and by however many platforms
+            "image": f"simops-sandbox-px4:{firmware[spec.platform.px4.firmware][1][:12]}",
             **after_spawn,
             "environment": {
                 **gz,
                 "PX4_GZ_WORLD": world_name,
                 "PX4_GZ_MODEL_NAME": agent,
-                "PX4_SYS_AUTOSTART": str(spec.platform.px4_airframe),
+                "PX4_SYS_AUTOSTART": str(spec.platform.px4.airframe),
                 "PX4_INSTANCE": str(i),
                 **({"PX4_ZENOH_NAMESPACE": agent} if environment.namespaces else {}),
             },
@@ -216,8 +226,12 @@ def build(environment: Environment) -> Bundle:
     world_name = world_el.get("name", "")
     bridge = prepare_agents(environment, world_name, out)
     (out / "bridge.yaml").write_text(yaml.safe_dump(bridge, sort_keys=False))
-    px4_ref, px4_commit = environment.autopilot.px4.resolve()
-    print(f"PX4 {px4_commit}" if px4_ref == px4_commit else f"PX4 {px4_ref} = {px4_commit}", flush=True)
-    spec = compose(environment, sdf.stem, world_name, px4_ref, px4_commit)
+    firmware = {}
+    for agent in environment.agents.values():
+        px4 = agent.platform.px4.firmware
+        if px4 not in firmware:
+            ref, commit = firmware[px4] = px4.resolve()
+            print(f"PX4 {commit}" if ref == commit else f"PX4 {ref} = {commit}", flush=True)
+    spec = compose(environment, sdf.stem, world_name, firmware)
     (out / "compose.yaml").write_text(yaml.safe_dump(spec, sort_keys=False))
     return Bundle(environment=environment, dir=out, compose=spec, world_name=world_name)

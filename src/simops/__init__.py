@@ -18,9 +18,19 @@ session is its own compose project and GZ_PARTITION, driven through testcontaine
 
 import logging
 from pathlib import Path
+from typing import Any
 
 # the repository this editable install lives in: bundles go to build/, images build from infra/
 ROOT = Path(__file__).resolve().parents[2]
 # testcontainers logs every failed compose call at ERROR -- a readiness poll while the world boots
 # included; simops prints the failures that matter itself
 logging.getLogger("testcontainers").setLevel(logging.CRITICAL)
+
+
+def describe(err: Any, document: str) -> str:  # noqa: ANN401 -- a pydantic ErrorDetails
+    """Say where in the file the problem is and what it is; `document` names what the file is."""
+    where = ".".join(str(part) for part in err["loc"])
+    if err["type"] == "extra_forbidden":
+        return f"`{where}` is not a key {document} defines"
+    what = err["msg"].removeprefix("Value error, ")
+    return f"{where}: {what}" if where else what

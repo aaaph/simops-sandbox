@@ -7,7 +7,6 @@ import pytest
 import yaml
 
 from simops.environment import Environment, InvalidEnvironment
-from simops.firmware import PX4Firmware
 from simops.world import RoomSpec, WorldFile
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -41,7 +40,7 @@ def test_paths_relative_to_environment_file(tmp_path, monkeypatch):
 
 
 def test_world_sources(variant, tmp_path):
-    room = Environment.load(variant("roomed", world={"room": {"seed": 42, "size": [20, 16]}}))
+    room = Environment.load(variant("roomed", world={"generate_room": {"seed": 42, "size": [20, 16]}}))
     assert room.world.source == RoomSpec(seed=42, size=(20, 16))
     sdf = tmp_path / "ready.sdf"
     sdf.write_text('<sdf version="1.9"><world name="ready"/></sdf>')
@@ -62,19 +61,16 @@ def test_partial_pose(variant):
             {"agents": {"rover1": {"platform": "x"}, "rover2": {"platform": "x"}}, "namespaces": False},
             "namespaces: true",
         ),
-        # a world source is exactly one of room and file
-        ({"world": {"room": {"seed": 1}, "file": "x.sdf"}}, r"`room`.*`file`"),
-        ({"world": {}}, r"`room`.*`file`"),
+        # a world source is exactly one of generate_room and file
+        ({"world": {"generate_room": {"seed": 1}, "file": "x.sdf"}}, r"`generate_room`.*`file`"),
+        ({"world": {}}, r"`generate_room`.*`file`"),
+        ({"world": {"room": {"seed": 1}}}, r"`world\.room` is now `world\.generate_room`"),
         # unknown keys, at any level
         ({"namespace": True}, r"`namespace` is not a key"),
         ({"agents": {"rover1": {"platform": "x", "position": [0, 0]}}}, r"`agents\.rover1\.position` is not"),
         ({"network": {"port": 7448}}, r"`network\.port` is not a key"),
-        # PX4 firmware
-        ({"autopilot": {"px4": {"ref": "4dbd2e069a5c30c2e53e47e842095d2576dc38c4"}}}, "`version`.*`commit`"),
-        ({"autopilot": {"px4": {"version": "v1.18.0-rc1", "commit": "a" * 40}}}, "not both"),
-        ({"autopilot": {"px4": {"commit": "4dbd2e0"}}}, "full 40-character SHA"),
-        ({"autopilot": {"px4": {"version": "latest"}}}, "not a PX4 version"),
-        ({"autopilot": {"px4": {"version": "v1.17.0"}}}, r"v1\.17\.0 is not supported, the minimum is 1\.18"),
+        # the firmware lives in the platform's agent.yaml
+        ({"autopilot": {"px4": {"version": "v1.18.0-rc1"}}}, "agent.yaml"),
     ],
 )
 def test_rejected(variant, keys, message):
@@ -96,11 +92,8 @@ def test_message_names_the_file(variant):
         Environment.load(path)
 
 
-@pytest.mark.parametrize("px4", [{}, {"version": "1.18.0-rc1"}, {"version": "v1.19.0"}, {"commit": "a" * 40}])
-def test_px4_accepted(variant, px4):
-    assert Environment.load(variant("accepted", autopilot={"px4": px4})).autopilot.px4 == PX4Firmware(**px4)
-
-
-def test_no_autopilot_key(variant):
-    path = rewrite(variant("noautopilot"), lambda d: d.pop("autopilot"))
-    assert Environment.load(path).autopilot.px4 == PX4Firmware()
+def test_invalid_agent_yaml(variant, platform):
+    old = platform("old_px4", airframe=50000, version="v1.17.0")
+    path = variant("oldpx4", agents={"rover1": {"platform": str(old)}})
+    with pytest.raises(InvalidEnvironment, match=rf"{old / 'agent.yaml'}.*v1\.17\.0.*minimum is 1\.18"):
+        Environment.load(path)

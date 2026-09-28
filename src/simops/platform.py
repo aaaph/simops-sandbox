@@ -5,7 +5,26 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, ValidationError
+
+from simops import describe
+from simops.firmware import PX4Autopilot
+
+
+class Autopilot(BaseModel):
+    """`autopilot:` of agent.yaml -- for now every platform runs PX4."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    px4: PX4Autopilot
+
+
+class AgentFile(BaseModel):
+    """agent.yaml: what cannot be separated from the body."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    autopilot: Autopilot
 
 
 class Platform(BaseModel):
@@ -14,7 +33,7 @@ class Platform(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     dir: Path
-    px4_airframe: int | None = None
+    px4: PX4Autopilot
 
     @classmethod
     def load(cls, platform_dir: Path) -> Platform:
@@ -23,9 +42,13 @@ class Platform(BaseModel):
         if missing:
             msg = f"platform {platform_dir} has no {', '.join(missing)}"
             raise ValueError(msg)
-        meta = yaml.safe_load((platform_dir / "agent.yaml").read_text()) or {}
-        airframe = ((meta.get("autopilot") or {}).get("px4") or {}).get("airframe")
-        return cls(dir=platform_dir, px4_airframe=airframe)
+        path = platform_dir / "agent.yaml"
+        try:
+            meta = AgentFile.model_validate(yaml.safe_load(path.read_text()) or {})
+        except ValidationError as e:
+            msg = f"{path}: " + "; ".join(describe(err, "agent.yaml") for err in e.errors())
+            raise ValueError(msg) from None
+        return cls(dir=platform_dir, px4=meta.autopilot.px4)
 
     @property
     def name(self) -> str:

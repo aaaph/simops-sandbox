@@ -50,7 +50,8 @@ How it is done, beyond the specs:
   (`up --wait`, exec, logs), except `down`, which adds `--remove-orphans` that `stop()` lacks.
   testcontainers' logger is silenced: simops prints the failures itself.
 - A platform (`platforms/<p>/`) is `model.sdf` + `bridge.yaml` + `agent.yaml`; the last holds
-  what cannot be separated from the body — for now the PX4 airframe.
+  what cannot be separated from the body — the PX4 airframe and the firmware it runs on
+  (`autopilot.px4`); the environment only picks platforms and poses.
 - Spawning goes through `/world/<w>/create` in the generated `spawn.sh`. The create reply can get
   lost over zenoh (#868 below), so it looks for the model in `/world/<w>/pose/info` and retries.
 - Namespaces rewrite the gz `<topic>`/`<odom_topic>` in a per-agent copy of the model
@@ -59,7 +60,7 @@ How it is done, beyond the specs:
   `./fs` on later main) with the prefix before it starts.
 
 Services: `zenoh-router` (ROS 2 and gz-transport both go through it), `world` (gz Jetty server),
-`px4-<agent>` (PX4 SITL of the environment's firmware, instance `-i N` so the PX4s sharing one network
+`px4-<agent>` (PX4 SITL of its platform's firmware, instance `-i N` so the PX4s sharing one network
 namespace get their own MAVLink ports), `spawn` (above) and `sim-sensors` (`ros_gz_bridge` with the agents'
 `bridge.yaml` merged: `/clock`, `/scan`, `/scan/points`, `/ground_truth` — the sim's stand-in for
 the sensor drivers). IMU, odometry and the
@@ -70,10 +71,12 @@ macOS pixi env, with gz-transport's zenoh backend, so the native macOS GUI attac
 router — no noVNC. The same `GZ_PARTITION` is required on every side: the default is
 `<hostname>:<user>`, so the containers and the Mac never see each other without it.
 
-PX4 version (spec: `autopilot`): `version: v1.18.0` or `commit: <full SHA>`, or neither for the
-newest 1.18+ release (the newest 1.18+ pre-release while there is none). `build` resolves it
-with `git ls-remote` (network; a `commit` builds offline) and tags the image by the commit, so
-each firmware is one full PX4 build (~10 min) and switching back to a built one costs nothing.
+PX4 version (spec: `autopilot`), in the platform's `agent.yaml` under `autopilot.px4`:
+`version: v1.18.0` or `commit: <full SHA>`, or neither for the newest 1.18+ release (the newest
+1.18+ pre-release while there is none). `build` resolves each platform's firmware with `git
+ls-remote` (network; a `commit` builds offline) and tags the image by the commit, so each
+firmware is one full PX4 build (~10 min), platforms naming the same one share it, and switching
+back to a built one costs nothing.
 PX4 1.18 is the minimum: 1.17 and earlier compile as C++14, which the conda gz Jetty env's
 abseil (C++17) cannot build (v1.17.0 checked 2026-09-28); older PX4 would need the Harmonic +
 noVNC variant below as a second stack. A commit build fetches its history (no trees, ~300 MB)

@@ -1,6 +1,7 @@
 """How an environment names its world: a room for worldgen to generate, or a ready-made SDF file."""
 
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, ValidationInfo, field_validator, model_validator
 
@@ -28,8 +29,16 @@ class World(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    room: RoomSpec | None = None
+    generate_room: RoomSpec | None = None
     file: Path | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _old_room(cls, data: Any) -> Any:  # noqa: ANN401 -- pydantic hands in the raw YAML value
+        if isinstance(data, dict) and "room" in data:
+            msg = "`world.room` is now `world.generate_room` (or give `file`)"
+            raise ValueError(msg)
+        return data
 
     @field_validator("file")
     @classmethod
@@ -39,12 +48,12 @@ class World(BaseModel):
 
     @model_validator(mode="after")
     def _one_source(self) -> World:
-        if (self.room is None) == (self.file is None):
-            msg = "give exactly one world source: `room` or `file`"
+        if (self.generate_room is None) == (self.file is None):
+            msg = "give exactly one world source: `generate_room` or `file`"
             raise ValueError(msg)
         return self
 
     @property
     def source(self) -> RoomSpec | WorldFile:
         """The world source this environment names."""
-        return self.room if self.room is not None else WorldFile(path=self.file or Path())
+        return self.generate_room if self.generate_room is not None else WorldFile(path=self.file or Path())

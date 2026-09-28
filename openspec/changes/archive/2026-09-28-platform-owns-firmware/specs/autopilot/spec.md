@@ -1,11 +1,11 @@
-# autopilot Specification
+# Spec Delta
 
-## Purpose
+## RENAMED Requirements
 
-Each agent's PX4 SITL as a dependency: the airframe and the firmware it runs on come from the
-agent's platform, and every agent gets its own instance.
+- FROM: `### Requirement: Firmware from the environment`
+- TO: `### Requirement: Firmware from the platform`
 
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: One PX4 per agent
 Every agent SHALL get its own PX4 SITL, attached to that agent in the world by its environment
@@ -70,14 +70,6 @@ needs no rebuild. Unknown keys under `autopilot` SHALL fail loading, naming the 
 - **WHEN** `rover1` and `rover2` use platforms whose `agent.yaml` name different versions
 - **THEN** `px4-rover1` and `px4-rover2` run from the images of their own platform's firmware
 
-### Requirement: Distinct instances
-Agents SHALL get distinct PX4 instance numbers `0..N-1` in environment order, so PX4s sharing one
-network namespace do not collide on their ports.
-
-#### Scenario: Second agent
-- **WHEN** an environment has agents `rover1` and `rover2`
-- **THEN** `px4-rover1` runs as instance 0 and `px4-rover2` as instance 1
-
 ### Requirement: Default firmware
 With neither `version` nor `commit`, simops SHALL use the newest release tag of PX4 1.18 or later
 without a pre-release suffix, or, when none exists, the newest 1.18+ pre-release tag.
@@ -108,15 +100,3 @@ compiled. Both messages SHALL name the version found and the 1.18 minimum.
 #### Scenario: Old commit
 - **WHEN** the platform sets a `commit` that `git describe` places before 1.18
 - **THEN** the PX4 image build stops before compiling, naming that version and the 1.18 minimum
-
-### Requirement: PX4 knows its version
-The PX4 in the image SHALL report the version it was built from: the tag for a `version`, the
-`git describe` of the commit for a `commit` — never `v0.0.0`.
-
-#### Scenario: Built from a tag
-- **WHEN** PX4 is built for `version: v1.18.0-rc1`
-- **THEN** its build reports the tag `v1.18.0-rc1`
-
-#### Scenario: Built from a commit
-- **WHEN** PX4 is built for a `commit` after `v1.18.0-beta1`
-- **THEN** its build reports a version starting with `v1.18.0-beta1-`

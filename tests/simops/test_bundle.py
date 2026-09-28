@@ -112,8 +112,20 @@ def test_compose_wiring():
         ({"commit": COMMIT}, COMMIT, COMMIT[:12]),
     ],
 )
-def test_firmware_names_the_image(variant, px4, ref, image):
-    bundle = build(Environment.load(variant("firmware", autopilot={"px4": px4})))
+def test_firmware_names_the_image(variant, platform, px4, ref, image):
+    rover = {"platform": str(platform("px4", airframe=50000, **px4)), "pose": [0, 0, 0.2]}
+    bundle = build(Environment.load(variant("firmware", agents={"rover1": rover})))
     px4_service = bundle.compose["services"]["px4-rover1"]
     assert px4_service["image"] == f"simops-sandbox-px4:{image}"
     assert px4_service["build"]["args"]["PX4_REF"] == ref
+
+
+def test_two_platforms_two_firmwares(variant, platform):
+    agents = {
+        "rover1": {"platform": str(platform("rc1", airframe=50000, version="v1.18.0-rc1"))},
+        "rover2": {"platform": str(platform("pinned", airframe=4001, commit=COMMIT)), "pose": [2, 0, 0.2]},
+    }
+    services = build(Environment.load(variant("mixed", namespaces=True, agents=agents))).compose["services"]
+    assert services["px4-rover1"]["image"] == f"simops-sandbox-px4:{RC1[:12]}"
+    assert services["px4-rover2"]["image"] == f"simops-sandbox-px4:{COMMIT[:12]}"
+    assert services["px4-rover2"]["environment"]["PX4_SYS_AUTOSTART"] == "4001"

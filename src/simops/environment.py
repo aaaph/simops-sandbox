@@ -1,12 +1,12 @@
-"""The environment: the YAML file naming world, agents and PX4 firmware -- the aggregate root."""
+"""The environment: the YAML file naming the world and the agents in it -- the aggregate root."""
 
 from typing import TYPE_CHECKING, Any
 
 import yaml
 from pydantic import BaseModel, ConfigDict, ValidationError, model_validator
 
+from simops import describe
 from simops.agent import Agent
-from simops.firmware import PX4Firmware
 from simops.world import World
 
 if TYPE_CHECKING:
@@ -15,14 +15,6 @@ if TYPE_CHECKING:
 
 class InvalidEnvironment(Exception):  # noqa: N818 -- the glossary's word, not "...Error"
     """An environment file that cannot be loaded; the message names the file, the key and why."""
-
-
-class Autopilot(BaseModel):
-    """`autopilot:` -- one firmware for every agent."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    px4: PX4Firmware = PX4Firmware()
 
 
 class Network(BaseModel):
@@ -34,22 +26,24 @@ class Network(BaseModel):
 
 
 class Environment(BaseModel):
-    """World, agents and PX4 firmware of a simulation; describes no action."""
+    """The world and the agents of a simulation; describes no action."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     name: str
     world: World
     agents: dict[str, Agent]
-    autopilot: Autopilot = Autopilot()
     namespaces: bool = False
     network: Network = Network()
 
     @model_validator(mode="before")
     @classmethod
-    def _no_robots(cls, data: Any) -> Any:  # noqa: ANN401 -- pydantic hands in the raw YAML value
+    def _moved_keys(cls, data: Any) -> Any:  # noqa: ANN401 -- pydantic hands in the raw YAML value
         if isinstance(data, dict) and "robots" in data:
             msg = "`robots:` is now `agents:`"
+            raise ValueError(msg)
+        if isinstance(data, dict) and "autopilot" in data:
+            msg = "`autopilot` is set in each platform's agent.yaml now (`autopilot.px4`), not in the environment"
             raise ValueError(msg)
         return data
 
@@ -70,13 +64,5 @@ class Environment(BaseModel):
         try:
             return cls.model_validate(data, context={"base": path.resolve().parent})
         except ValidationError as e:
-            raise InvalidEnvironment(f"{path}: " + "; ".join(_describe(err) for err in e.errors())) from None
-
-
-def _describe(err: Any) -> str:  # noqa: ANN401 -- a pydantic ErrorDetails
-    """Say where in the file the problem is and what it is."""
-    where = ".".join(str(part) for part in err["loc"])
-    if err["type"] == "extra_forbidden":
-        return f"`{where}` is not a key an environment defines"
-    what = err["msg"].removeprefix("Value error, ")
-    return f"{where}: {what}" if where else what
+            errors = "; ".join(describe(err, "an environment") for err in e.errors())
+            raise InvalidEnvironment(f"{path}: {errors}") from None

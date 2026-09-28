@@ -1,7 +1,12 @@
-# What cannot be separated from this body: how an autopilot drives it. An environment
-# picks the platform and the autopilot's firmware; the rest follows from here.
+# What cannot be separated from this body: the autopilot that drives it. An environment picks
+# the platform; the airframe and the firmware it runs on follow from here.
 autopilot:
   px4:
     # gz_rover_differential: the rover modules, and wheel geometry and speed limits
     # tuned for this chassis
     airframe: 50000
+    # `version: v1.18.0` (a release tag, 1.18 or later) or `commit: <full SHA>`; neither:
+    # the newest 1.18+ release, or pre-release while there is none. Pinned because the
+    # /fmu/* type hashes are part of the zenoh key: whatever speaks to PX4 must use
+    # px4_msgs from this same version, or the topics silently vanish.
+    version: v1.18.0-rc1

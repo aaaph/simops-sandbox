@@ -64,6 +64,17 @@ class PX4Firmware(BaseModel):
         return tag, tags[tag]
 
 
+class PX4Autopilot(PX4Firmware):
+    """A platform's `autopilot.px4`: the airframe of this body and the firmware it runs on."""
+
+    airframe: int
+
+    @property
+    def firmware(self) -> PX4Firmware:
+        """The firmware alone: platforms naming the same one share its resolution and image."""
+        return PX4Firmware(repo=self.repo, version=self.version, commit=self.commit)
+
+
 def unsupported(version: str) -> str:
     """Say why a PX4 version cannot run on this stack."""
     return (
