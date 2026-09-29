@@ -1,16 +1,14 @@
 """The environment file: keys, defaults, paths, and every way loading refuses one (spec: environment)."""
 
-import os
 from pathlib import Path
 
 import pytest
-import yaml
 
 from simops.environment import Environment, InvalidEnvironment
 from simops.world import EmptySpec, RoomSpec, WorldFile
 
 ROOT = Path(__file__).resolve().parents[2]
-ENVIRONMENT = ROOT / "environments/rover_room.yaml"
+ENVIRONMENTS = Path(__file__).resolve().parent / "environments"  # the base of the `environment` fixture
 PX4_PLATFORM = ROOT / "platforms/rover_differential_lidar_px4"
 
 
@@ -22,22 +20,18 @@ def test_defaults():
     assert environment.network.router_port == 7447
 
 
-@pytest.mark.generating_files
-def test_paths_relative_to_environment_file(tmp_path, monkeypatch):
-    doc = yaml.safe_load(ENVIRONMENT.read_text())
-    doc["agents"]["rover1"]["platform"] = os.path.relpath(PX4_PLATFORM, tmp_path)
-    (tmp_path / "rel.yaml").write_text(yaml.safe_dump(doc))
-    elsewhere = tmp_path / "elsewhere"
-    elsewhere.mkdir()
-    monkeypatch.chdir(elsewhere)
-    assert Environment.load(Path("../rel.yaml")).agents["rover1"].platform.dir == PX4_PLATFORM
+def test_paths_relative_to_environment_file(monkeypatch):
+    # small_room.yaml names ../../../platforms/...: right from its own directory, wrong from tests/
+    monkeypatch.chdir(ROOT / "tests")
+    environment = Environment.load(Path("simops/environments/small_room.yaml"))
+    assert environment.agents["rover1"].platform.dir == PX4_PLATFORM
 
 
 def test_world_sources(environment):
     room = environment("roomed", world={"generate_room": {"seed": 42, "size": [20, 16]}})
     assert room.world.source == RoomSpec(seed=42, size=(20, 16))
     ready = environment("filed", world={"file": "../worlds/ready.sdf"})  # relative to the environment file
-    assert ready.world.source == WorldFile(path=(ENVIRONMENT.parent / "../worlds/ready.sdf").resolve())
+    assert ready.world.source == WorldFile(path=(ENVIRONMENTS / "../worlds/ready.sdf").resolve())
     assert environment("emptied", world={"empty_world": None}).world.source == EmptySpec()
 
 

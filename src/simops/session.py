@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 from testcontainers.compose import DockerCompose
 
-from simops import ROOT
+from simops import build_dir
 from simops.bundle import Bundle, build, zenoh_gz
 
 if TYPE_CHECKING:
@@ -17,12 +17,12 @@ if TYPE_CHECKING:
 
 
 class Session:
-    """The session of an environment: its compose project under build/<name>/."""
+    """The session of an environment: its compose project in build/<name>/ (see `build_dir`)."""
 
     def __init__(self, environment: Environment) -> None:
         """Name the session after its environment."""
         self.environment = environment
-        self.dir = ROOT / "build" / environment.name
+        self.dir = build_dir() / environment.name
 
     def project(self) -> DockerCompose:
         """Open the bundle as a compose project (its name is set in compose.yaml)."""

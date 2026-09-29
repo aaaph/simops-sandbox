@@ -17,7 +17,8 @@ rerun MCP server's own viewer must stay up.
 "scenario", sim-only, …) are defined once, in the `context` of `openspec/config.yaml`; use them as
 defined there. `simops` builds an environment (`environments/rover_room.yaml`) into a bundle
 in `build/<name>/` (`compose.yaml`, the merged `bridge.yaml`, the world with the agents placed in
-it, the platforms it uses) and runs the bundle as a session, with `GZ_PARTITION=<name>`.
+it, the platforms it uses; `$SIMOPS_BUILD_DIR/<name>/` when that is set) and runs the bundle as a
+session, with `GZ_PARTITION=<name>`.
 
     pixi run simops up environments/rover_room.yaml     # returns once every agent is in the world and sim time moves
     pixi run simops gui environments/rover_room.yaml    # native gz GUI, right partition and router
@@ -40,8 +41,9 @@ keep up, and never touch containers you did not start.
 writes), `sim-lifecycle` (`up`/`down`/`run`), `agent-spawn` (first the world, then the agents),
 `agent-interface` (topics, namespaces), `host-access` (`host-env`, `gui`, what host code must use),
 `autopilot`. Change behavior through an OpenSpec change, not by editing code alone. Tests:
-`pixi run test` (unit, in memory, under a second), `pixi run pytest -m "generating_files and not docker"`
-(unit tests that write real files) and `pixi run pytest -m docker` (starts sessions, minutes).
+`pixi run test` (unit: in memory, and `generating_files` -- write real files, start no container;
+about a second) and `pixi run pytest -m docker` (start sessions, minutes); `-m generating_files` or
+`-m "not generating_files"` picks one kind of unit test.
 
 Unit tests are written for fast, cheap runs, in memory first:
 - assert on values — `Environment.parse`, `Platform.parse`, `bundle.build`, `room.world` /
@@ -53,7 +55,15 @@ Unit tests are written for fast, cheap runs, in memory first:
 - share an expensive fixture nothing mutates (`scope="module"`); no work the test does not assert on;
 - a unit test over ~50 ms in `pixi run pytest --durations=10` is a reason to look for that work;
 - a test whose behavior is a file (the bundle on disk, a CLI writing `-o`) is marked
-  `generating_files` and stays out of `pixi run test`.
+  `generating_files`; one that starts containers is `docker`
+  instead, whatever files it writes;
+- tests write only to pytest's temporary directories: `tests/conftest.py` points
+  `SIMOPS_BUILD_DIR` there for the whole run, so no test touches `build/` (nor the bundle of a
+  session someone keeps up); they use their own environments (`tests/simops/environments/`, the
+  `environment` fixture), never the examples in `environments/`. A guard in `tests/conftest.py`
+  (a sys audit hook, `tests/test_guard.py`) fails any test that reads `environments/` or writes to
+  `build/`, and stops the run if a test module does so when it is imported; do not work around
+  it — give the test its own environment, write to `tmp_path`.
 
 How it is done, beyond the specs:
 - Entities are pydantic models (`extra="forbid"`): an invalid environment fails `load` with one

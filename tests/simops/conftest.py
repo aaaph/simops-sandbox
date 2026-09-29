@@ -10,7 +10,8 @@ from simops.environment import Environment
 from simops.platform import Platform
 
 ROOT = Path(__file__).resolve().parents[2]
-ENVIRONMENT = ROOT / "environments/rover_room.yaml"
+# the tests' own environment files; the examples in environments/ are not used by tests
+ENVIRONMENTS = Path(__file__).resolve().parent / "environments"
 PX4_PLATFORM = ROOT / "platforms/rover_differential_lidar_px4"
 # what `git ls-remote --tags` says, trimmed: v1.18.0-rc1 points to fca3df865af3
 LS_REMOTE = """\
@@ -36,11 +37,10 @@ def no_network(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def document(name: str, keys: dict) -> dict:
-    """Give rover_room's agent in an open field, `keys` replaced; relative platform paths become the PX4 one.
+    """Give one rover in an open field, `keys` replaced; relative platform paths become the PX4 one.
 
-    An open field builds in ~1 ms, rover_room's 25 x 21 m room takes most of a second to generate;
-    a test that needs a room says so (`world=`), and the real environments/rover_room.yaml is
-    built by the on-disk bundle test.
+    An open field builds in ~1 ms, a 25 x 21 m room takes most of a second to generate; a test
+    that needs a room says so (`world=`, a small one).
     """
     doc = {
         "name": name,
@@ -60,7 +60,7 @@ def environment():  # noqa: ANN201 -- returns the maker below
     """Build the test environment with some keys replaced, in memory; errors name `<name>.yaml`."""
 
     def make(name: str, **keys: object) -> Environment:
-        return Environment.parse(document(name, keys), base=ENVIRONMENT.parent, origin=Path(f"{name}.yaml"))
+        return Environment.parse(document(name, keys), base=ENVIRONMENTS, origin=Path(f"{name}.yaml"))
 
     return make
 

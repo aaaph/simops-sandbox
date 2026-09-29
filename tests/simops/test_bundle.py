@@ -11,8 +11,7 @@ from worldgen.world import SdfWorld, StartMarker
 
 pytestmark = pytest.mark.usefixtures("no_network")
 
-ROOT = Path(__file__).resolve().parents[2]
-ENVIRONMENT = ROOT / "environments/rover_room.yaml"
+SMALL_ROOM = Path(__file__).resolve().parent / "environments/small_room.yaml"
 RC1 = "fca3df865af36124a28c9d607e850f111dbaaea9"  # the commit v1.18.0-rc1 points to
 COMMIT = "4dbd2e069a5c30c2e53e47e842095d2576dc38c4"
 
@@ -41,8 +40,8 @@ def test_rover_room_bundle(environment):
 
 
 @pytest.mark.generating_files
-def test_rover_room_bundle_on_disk(tmp_path):
-    out = build(Environment.load(ENVIRONMENT)).write(tmp_path / "rover_room")
+def test_bundle_on_disk(tmp_path):
+    out = build(Environment.load(SMALL_ROOM)).write(tmp_path / "small_room")
     assert (out / "platforms/rover_differential_lidar_px4/model.sdf").exists()
     assert (out / "platforms/rover_differential_lidar/meshes").is_dir()
     assert ET.parse(out / "worlds/room.sdf").find("world/include") is None

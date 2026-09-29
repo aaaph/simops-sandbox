@@ -17,11 +17,19 @@ session is its own compose project and GZ_PARTITION, driven through testcontaine
 """  # noqa: D301 -- `\b` keeps click from rewrapping the examples
 
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
 # the repository this editable install lives in: bundles go to build/, images build from infra/
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def build_dir() -> Path:
+    """Where bundles go, one directory per environment: $SIMOPS_BUILD_DIR, or build/ in this repository."""
+    return Path(os.environ.get("SIMOPS_BUILD_DIR") or ROOT / "build").resolve()
+
+
 # testcontainers logs every failed compose call at ERROR -- a readiness poll while the world boots
 # included; simops prints the failures that matter itself
 logging.getLogger("testcontainers").setLevel(logging.CRITICAL)

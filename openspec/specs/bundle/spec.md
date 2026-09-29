@@ -9,7 +9,8 @@
 
 ### Requirement: Bundle contents
 `simops build <environment>` SHALL write the bundle to `build/<name>/` and print its path, without
-starting any container. The bundle SHALL contain `compose.yaml`, `spawn.sh`, `bridge.yaml`,
+starting any container; when `SIMOPS_BUILD_DIR` is set, bundles go to `$SIMOPS_BUILD_DIR/<name>/`
+instead, for `build`, `up`, `down` and `run` alike. The bundle SHALL contain `compose.yaml`, `spawn.sh`, `bridge.yaml`,
 `worlds/` with the environment's world, and `platforms/` with every platform the agents use plus
 every model those platforms reference through `model://<name>/` URIs. Building again SHALL
 replace the previous bundle entirely.
@@ -17,6 +18,10 @@ replace the previous bundle entirely.
 #### Scenario: Platform borrowing meshes
 - **WHEN** an agent's platform references `model://rover_differential_lidar/meshes/...`
 - **THEN** the bundle contains both that platform and `platforms/rover_differential_lidar/meshes`
+
+#### Scenario: Bundles elsewhere
+- **WHEN** `SIMOPS_BUILD_DIR=/tmp/bundles simops build rover_room.yaml` runs
+- **THEN** the bundle is written to `/tmp/bundles/rover_room/` and nothing to `build/`
 
 #### Scenario: Rebuild drops stale files
 - **WHEN** a bundle directory contains a file the current environment does not produce and the environment is built again

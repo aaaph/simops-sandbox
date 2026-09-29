@@ -19,22 +19,23 @@ from simops.environment import Environment
 from simops.session import Session
 from worldgen import room
 
-pytestmark = [pytest.mark.docker, pytest.mark.generating_files]
+pytestmark = pytest.mark.docker
 
 ROOT = Path(__file__).resolve().parents[2]
-ENVIRONMENT = ROOT / "environments/rover_room.yaml"
+PX4_PLATFORM = str(ROOT / "platforms/rover_differential_lidar_px4")
+# the world of these tests: a 25 x 21 m room, as big as sessions in use get
+WORLD = {"generate_room": {"size": [25, 21]}}
 TIMEOUT = 300
 
 
 def environment(tmp_path: Path, name: str, port: int, agents: list[str], namespaces: bool = False) -> Session:
-    """rover_room renamed, on its own port, with the given agents 2 m apart."""
-    sim = yaml.safe_load(ENVIRONMENT.read_text())
-    platform = str(ROOT / "platforms/rover_differential_lidar_px4")
-    sim |= {
+    """Give a room with the given agents 2 m apart, under its own name and port."""
+    sim = {
         "name": name,
         "namespaces": namespaces,
         "network": {"router_port": port},
-        "agents": {a: {"platform": platform, "pose": [2 * i, 0, 0.2]} for i, a in enumerate(agents)},
+        "world": WORLD,
+        "agents": {a: {"platform": PX4_PLATFORM, "pose": [2 * i, 0, 0.2]} for i, a in enumerate(agents)},
     }
     path = tmp_path / f"{name}.yaml"
     path.write_text(yaml.safe_dump(sim))
@@ -105,8 +106,7 @@ def test_failed_up_leaves_nothing(tmp_path, cleanup):
     (broken / "model.sdf").write_text('<sdf version="1.9">not a model</sdf>')
     world = tmp_path / "room.sdf"  # a ready-made world: the generator cannot measure the broken model
     room.generate(world, clearance=0.9)
-    sim = yaml.safe_load(ENVIRONMENT.read_text())
-    sim |= {
+    sim = {
         "name": "t_timeout",
         "network": {"router_port": 7462},
         "world": {"file": str(world)},

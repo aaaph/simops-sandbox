@@ -1,0 +1,12 @@
+# A test environment, for the tests that need an environment file: one rover in a small room,
+# quick to generate (6 x 5 m, ~10 ms). The examples in environments/ are not used by tests.
+# Paths are relative to this file.
+name: small_room
+
+world:
+  generate_room: { size: [6, 5], obstacles: 4 }
+
+agents:
+  rover1:
+    platform: ../../../platforms/rover_differential_lidar_px4
+    pose: [0, 0, 0.2]

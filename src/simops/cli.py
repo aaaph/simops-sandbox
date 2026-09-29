@@ -29,7 +29,7 @@ def load(path: Path) -> Environment:
 
 @app.command("build")
 def build_cmd(environment: EnvironmentPath) -> None:
-    """Write the bundle to build/<name>/."""
+    """Write the bundle to build/<name>/ ($SIMOPS_BUILD_DIR/<name>/ when set)."""
     loaded = load(environment)
     print(build(loaded).write(Session(loaded).dir))
 

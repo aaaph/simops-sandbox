@@ -1,6 +1,13 @@
-"""What host tools need to reach a session (spec: host-access)."""
+"""What host tools need to reach a session (spec: host-access), and where its bundle is (spec: bundle)."""
 
+from simops import ROOT
 from simops.session import Session
+
+
+def test_bundle_directory(environment, build_dir, monkeypatch):
+    assert Session(environment("elsewhere")).dir == build_dir / "elsewhere"  # SIMOPS_BUILD_DIR, set for tests
+    monkeypatch.delenv("SIMOPS_BUILD_DIR")
+    assert Session(environment("default")).dir == ROOT / "build/default"
 
 
 def test_host_env(environment):
