@@ -132,11 +132,23 @@ def generate(
     """Generate a room (see `world`), write it to `out` and return a one-line summary."""
     room = world(clearance=clearance, seed=seed, size=size, obstacles=obstacles, **options)
     out.write_text(room.sdf())
+    return f"{out}: {summary(room, clearance=clearance, seed=seed, size=size, obstacles=obstacles)}"
+
+
+def summary(
+    room: SdfWorld,
+    *,
+    clearance: float,
+    seed: int = 0,
+    size: tuple[float, float] = SIZE,
+    obstacles: int = OBSTACLES,
+) -> str:
+    """Say what the room holds and what it was generated from; `obstacles` is how many were asked for."""
     obs = [p for p in room.parts if isinstance(p, Obstacle)]
     boxes = sum(o.shape is Shape.BOX for o in obs)
     short = len(obs) < obstacles
     fit = f" (fit only {len(obs)}/{obstacles}: room too small or clearance too big)" if short else ""
     return (
-        f"{out}: {boxes} boxes + {len(obs) - boxes} cylinders, {size[0]}x{size[1]} m, "
+        f"{boxes} boxes + {len(obs) - boxes} cylinders, {size[0]}x{size[1]} m, "
         f"clearance {clearance:.2f} m verified, seed {seed}{fit}"
     )

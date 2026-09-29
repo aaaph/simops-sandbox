@@ -6,6 +6,8 @@ import pytest
 import yaml
 
 import simops.firmware
+from simops.environment import Environment
+from simops.platform import Platform
 
 ROOT = Path(__file__).resolve().parents[2]
 ENVIRONMENT = ROOT / "environments/rover_room.yaml"
@@ -33,24 +35,60 @@ def no_network(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(simops.firmware, "ls_remote", lambda _repo: LS_REMOTE)
 
 
+def document(name: str, keys: dict) -> dict:
+    """Give rover_room's agent in an open field, `keys` replaced; relative platform paths become the PX4 one.
+
+    An open field builds in ~1 ms, rover_room's 25 x 21 m room takes most of a second to generate;
+    a test that needs a room says so (`world=`), and the real environments/rover_room.yaml is
+    built by the on-disk bundle test.
+    """
+    doc = {
+        "name": name,
+        "namespaces": False,
+        "network": {"router_port": 7447},
+        "world": {"empty_world": None},
+        "agents": {"rover1": {"platform": str(PX4_PLATFORM), "pose": [0, 0, 0.2]}},
+    } | keys
+    for agent in doc.get("agents", {}).values():
+        if isinstance(agent["platform"], str) and not Path(agent["platform"]).is_absolute():
+            agent["platform"] = str(PX4_PLATFORM)
+    return doc
+
+
 @pytest.fixture
-def variant(tmp_path: Path):  # noqa: ANN201 -- returns the maker below
-    """Write rover_room with some keys replaced to tmp_path; relative platform paths become the PX4 one."""
+def environment():  # noqa: ANN201 -- returns the maker below
+    """Build the test environment with some keys replaced, in memory; errors name `<name>.yaml`."""
+
+    def make(name: str, **keys: object) -> Environment:
+        return Environment.parse(document(name, keys), base=ENVIRONMENT.parent, origin=Path(f"{name}.yaml"))
+
+    return make
+
+
+@pytest.fixture
+def platform():  # noqa: ANN201 -- returns the maker below
+    """Give the PX4 platform with its `autopilot.px4` replaced, in memory; agent.yaml's checks run."""
+
+    def make(**px4: object) -> Platform:
+        return Platform.parse(PX4_PLATFORM, {"autopilot": {"px4": px4}})
+
+    return make
+
+
+@pytest.fixture
+def environment_file(tmp_path: Path):  # noqa: ANN201 -- returns the maker below
+    """Write the test environment with some keys replaced to tmp_path, for what needs the file itself."""
 
     def make(name: str, **keys: object) -> Path:
-        doc = yaml.safe_load(ENVIRONMENT.read_text()) | {"name": name} | keys
-        for agent in doc.get("agents", {}).values():
-            if not Path(agent["platform"]).is_absolute():
-                agent["platform"] = str(PX4_PLATFORM)
         path = tmp_path / f"{name}.yaml"
-        path.write_text(yaml.safe_dump(doc))
+        path.write_text(yaml.safe_dump(document(name, keys)))
         return path
 
     return make
 
 
 @pytest.fixture
-def platform(tmp_path: Path):  # noqa: ANN201 -- returns the maker below
+def platform_dir(tmp_path: Path):  # noqa: ANN201 -- returns the maker below
     """Copy the PX4 platform to tmp_path/platforms/<name> with its `autopilot.px4` replaced.
 
     model.sdf and bridge.yaml are links; the platform whose meshes it borrows is linked next to it.

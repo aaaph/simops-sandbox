@@ -19,7 +19,7 @@ from simops.environment import Environment
 from simops.session import Session
 from worldgen import room
 
-pytestmark = pytest.mark.docker
+pytestmark = [pytest.mark.docker, pytest.mark.generating_files]
 
 ROOT = Path(__file__).resolve().parents[2]
 ENVIRONMENT = ROOT / "environments/rover_room.yaml"

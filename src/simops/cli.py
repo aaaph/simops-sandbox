@@ -30,7 +30,8 @@ def load(path: Path) -> Environment:
 @app.command("build")
 def build_cmd(environment: EnvironmentPath) -> None:
     """Write the bundle to build/<name>/."""
-    print(build(load(environment)).dir)
+    loaded = load(environment)
+    print(build(loaded).write(Session(loaded).dir))
 
 
 @app.command("up")

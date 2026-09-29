@@ -74,6 +74,7 @@ class Session:
     def up(self, timeout: float) -> int:
         """Build the bundle, start the session, wait for the agents in a running sim; on failure leave nothing."""
         bundle = build(self.environment)
+        bundle.write(self.dir)
         name = self.environment.name
         print(f"starting {name} (images are built on first use; a PX4 build takes ~10 min)", flush=True)
         try:

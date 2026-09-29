@@ -40,13 +40,31 @@ keep up, and never touch containers you did not start.
 writes), `sim-lifecycle` (`up`/`down`/`run`), `agent-spawn` (first the world, then the agents),
 `agent-interface` (topics, namespaces), `host-access` (`host-env`, `gui`, what host code must use),
 `autopilot`. Change behavior through an OpenSpec change, not by editing code alone. Tests:
-`pixi run test` (unit, seconds) and `pixi run pytest -m docker` (starts sessions, minutes).
+`pixi run test` (unit, in memory, under a second), `pixi run pytest -m "generating_files and not docker"`
+(unit tests that write real files) and `pixi run pytest -m docker` (starts sessions, minutes).
+
+Unit tests are written for fast, cheap runs, in memory first:
+- assert on values — `Environment.parse`, `Platform.parse`, `bundle.build`, `room.world` /
+  `empty.world` — not on files written to be read back; keep computing apart from I/O in code so
+  this stays possible;
+- the smallest input that exercises the behavior: the `environment` fixture's open field unless
+  the test is about a room, a 6 x 5 m room when it is (rover_room's 25 x 21 m takes most of a
+  second);
+- share an expensive fixture nothing mutates (`scope="module"`); no work the test does not assert on;
+- a unit test over ~50 ms in `pixi run pytest --durations=10` is a reason to look for that work;
+- a test whose behavior is a file (the bundle on disk, a CLI writing `-o`) is marked
+  `generating_files` and stays out of `pixi run test`.
 
 How it is done, beyond the specs:
 - Entities are pydantic models (`extra="forbid"`): an invalid environment fails `load` with one
   `InvalidEnvironment` naming the file, the key path and why; the CLI prints it and exits 1.
-- simops measures the platform's width (`Platform.width()`) and calls `worldgen.room.generate`
-  with the clearance; worldgen knows nothing of platforms or agents.
+- Computing is kept apart from files: `Environment.parse` and `Platform.parse` validate documents
+  (`load` reads, then parses), `bundle.build` returns the `Bundle` in memory and `Bundle.write`
+  puts it in `build/<name>/`; unit tests assert on the values and use files only where the
+  behavior is a file.
+- simops measures the platform's width (`Platform.width()`) and calls `worldgen.room.world`
+  (and `room.summary` for the printed line) with the clearance; worldgen knows nothing of
+  platforms or agents.
 - The CLI is Typer; the compose project is driven through testcontainers' `DockerCompose`
   (`up --wait`, exec, logs), except `down`, which adds `--remove-orphans` that `stop()` lacks.
   testcontainers' logger is silenced: simops prints the failures itself.

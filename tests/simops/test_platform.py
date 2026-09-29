@@ -24,22 +24,19 @@ RC1 = "fca3df865af36124a28c9d607e850f111dbaaea9"
     ],
 )
 def test_rejected(platform, px4, message):
-    path = platform("broken", **px4)
     with pytest.raises(ValueError, match=message) as e:
-        Platform.load(path)
-    assert str(e.value).startswith(str(path / "agent.yaml"))
+        platform(**px4)
+    assert str(e.value).startswith(str(PX4_PLATFORM / "agent.yaml"))
 
 
-def test_no_autopilot(platform):
-    path = platform("bare", airframe=50000)
-    (path / "agent.yaml").write_text("{}")
+def test_no_autopilot():
     with pytest.raises(ValueError, match=r"autopilot: Field required"):
-        Platform.load(path)
+        Platform.parse(PX4_PLATFORM, {})
 
 
 @pytest.mark.parametrize("firmware", [{}, {"version": "1.18.0-rc1"}, {"version": "v1.19.0"}, {"commit": RC1}])
 def test_accepted(platform, firmware):
-    px4 = Platform.load(platform("ok", airframe=4001, **firmware)).px4
+    px4 = platform(airframe=4001, **firmware).px4
     assert px4.airframe == 4001
     assert px4.firmware == PX4Firmware(**firmware)
 

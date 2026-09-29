@@ -21,4 +21,9 @@ def world(*, clearance: float) -> SdfWorld:
 def generate(out: Path, *, clearance: float) -> str:
     """Generate an open field, write it to `out` and return a one-line summary."""
     out.write_text(world(clearance=clearance).sdf())
-    return f"{out}: open field, clearance {clearance:.2f} m"
+    return f"{out}: {summary(clearance=clearance)}"
+
+
+def summary(*, clearance: float) -> str:
+    """Say what the open field is."""
+    return f"open field, clearance {clearance:.2f} m"

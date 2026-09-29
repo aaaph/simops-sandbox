@@ -16,7 +16,8 @@ GZ_SIM_RESOURCE_PATH = "$PIXI_PROJECT_ROOT/platforms"
 
 [tasks]
 lint = "ruff check --fix --show-fixes && ty check"
-test = "pytest"
+# in memory only; the tests that write files: `pixi run pytest -m "generating_files and not docker"`
+test = 'pytest'
 # every pre-commit hook, ruff format included: the first run fixes (and exits 1 if it did),
 # the second checks nothing is left
 format = "pre-commit run --all-files || pre-commit run --all-files"

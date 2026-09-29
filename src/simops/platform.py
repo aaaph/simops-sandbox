@@ -3,6 +3,7 @@
 import math
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from typing import Any
 
 import yaml
 from pydantic import BaseModel, ConfigDict, ValidationError
@@ -42,11 +43,15 @@ class Platform(BaseModel):
         if missing:
             msg = f"platform {platform_dir} has no {', '.join(missing)}"
             raise ValueError(msg)
-        path = platform_dir / "agent.yaml"
+        return cls.parse(platform_dir, yaml.safe_load((platform_dir / "agent.yaml").read_text()))
+
+    @classmethod
+    def parse(cls, platform_dir: Path, agent_yaml: Any) -> Platform:  # noqa: ANN401 -- the raw YAML document
+        """Validate the platform's agent.yaml document; errors name `<platform_dir>/agent.yaml`."""
         try:
-            meta = AgentFile.model_validate(yaml.safe_load(path.read_text()) or {})
+            meta = AgentFile.model_validate(agent_yaml or {})
         except ValidationError as e:
-            msg = f"{path}: " + "; ".join(describe(err, "agent.yaml") for err in e.errors())
+            msg = f"{platform_dir / 'agent.yaml'}: " + "; ".join(describe(err, "agent.yaml") for err in e.errors())
             raise ValueError(msg) from None
         return cls(dir=platform_dir, px4=meta.autopilot.px4)
 

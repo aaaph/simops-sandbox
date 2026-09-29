@@ -61,8 +61,13 @@ class Environment(BaseModel):
             data = yaml.safe_load(path.read_text())
         except OSError as e:
             raise InvalidEnvironment(f"{path}: {e.strerror}") from None
+        return cls.parse(data, base=path.resolve().parent, origin=path)
+
+    @classmethod
+    def parse(cls, data: Any, *, base: Path, origin: Path) -> Environment:  # noqa: ANN401 -- the raw YAML document
+        """Validate an environment document; paths in it are relative to `base`, errors name `origin`."""
         try:
-            return cls.model_validate(data, context={"base": path.resolve().parent})
+            return cls.model_validate(data, context={"base": base})
         except ValidationError as e:
             errors = "; ".join(describe(err, "an environment") for err in e.errors())
-            raise InvalidEnvironment(f"{path}: {errors}") from None
+            raise InvalidEnvironment(f"{origin}: {errors}") from None

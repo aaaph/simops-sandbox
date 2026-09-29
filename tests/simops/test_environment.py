@@ -14,21 +14,15 @@ ENVIRONMENT = ROOT / "environments/rover_room.yaml"
 PX4_PLATFORM = ROOT / "platforms/rover_differential_lidar_px4"
 
 
-def rewrite(path: Path, edit) -> Path:
-    """Apply `edit` to the YAML document in `path`."""
-    doc = yaml.safe_load(path.read_text())
-    edit(doc)
-    path.write_text(yaml.safe_dump(doc))
-    return path
-
-
-def test_defaults(variant):
-    path = rewrite(variant("defaults"), lambda d: [d.pop("namespaces"), d.pop("network")])
-    environment = Environment.load(path)
+def test_defaults():
+    agents = {"rover1": {"platform": str(PX4_PLATFORM)}}
+    doc = {"name": "defaults", "world": {"empty_world": None}, "agents": agents}
+    environment = Environment.parse(doc, base=ROOT, origin=Path("defaults.yaml"))
     assert environment.namespaces is False
     assert environment.network.router_port == 7447
 
 
+@pytest.mark.generating_files
 def test_paths_relative_to_environment_file(tmp_path, monkeypatch):
     doc = yaml.safe_load(ENVIRONMENT.read_text())
     doc["agents"]["rover1"]["platform"] = os.path.relpath(PX4_PLATFORM, tmp_path)
@@ -39,19 +33,16 @@ def test_paths_relative_to_environment_file(tmp_path, monkeypatch):
     assert Environment.load(Path("../rel.yaml")).agents["rover1"].platform.dir == PX4_PLATFORM
 
 
-def test_world_sources(variant, tmp_path):
-    room = Environment.load(variant("roomed", world={"generate_room": {"seed": 42, "size": [20, 16]}}))
+def test_world_sources(environment):
+    room = environment("roomed", world={"generate_room": {"seed": 42, "size": [20, 16]}})
     assert room.world.source == RoomSpec(seed=42, size=(20, 16))
-    sdf = tmp_path / "ready.sdf"
-    sdf.write_text('<sdf version="1.9"><world name="ready"/></sdf>')
-    ready = Environment.load(variant("filed", world={"file": str(sdf)}))
-    assert ready.world.source == WorldFile(path=sdf)
-    empty = Environment.load(variant("emptied", world={"empty_world": None}))
-    assert empty.world.source == EmptySpec()
+    ready = environment("filed", world={"file": "../worlds/ready.sdf"})  # relative to the environment file
+    assert ready.world.source == WorldFile(path=(ENVIRONMENT.parent / "../worlds/ready.sdf").resolve())
+    assert environment("emptied", world={"empty_world": None}).world.source == EmptySpec()
 
 
-def test_partial_pose(variant):
-    pose = Environment.load(variant("posed")).agents["rover1"].pose
+def test_partial_pose(environment):
+    pose = environment("posed").agents["rover1"].pose
     assert (pose.x, pose.y, pose.z, pose.roll, pose.pitch, pose.yaw) == (0, 0, 0.2, 0, 0, 0)
 
 
@@ -78,27 +69,29 @@ def test_partial_pose(variant):
         ({"autopilot": {"px4": {"version": "v1.18.0-rc1"}}}, "agent.yaml"),
     ],
 )
-def test_rejected(variant, keys, message):
+def test_rejected(environment, keys, message):
     with pytest.raises(InvalidEnvironment, match=message):
-        Environment.load(variant("rejected", **keys))
+        environment("rejected", **keys)
 
 
-def test_old_robots_key(tmp_path):
-    doc = yaml.safe_load(ENVIRONMENT.read_text())
-    path = tmp_path / "old.yaml"
-    path.write_text(yaml.safe_dump({**doc, "robots": doc.pop("agents")}))
+def test_old_robots_key(environment):
     with pytest.raises(InvalidEnvironment, match="agents:"):
-        Environment.load(path)
+        environment("old", robots={})
 
 
-def test_message_names_the_file(variant):
-    path = variant("named", namespace=True)
-    with pytest.raises(InvalidEnvironment, match=str(path)):
-        Environment.load(path)
+def test_message_names_the_file(environment):
+    with pytest.raises(InvalidEnvironment, match=r"^named\.yaml: "):
+        environment("named", namespace=True)
 
 
-def test_invalid_agent_yaml(variant, platform):
-    old = platform("old_px4", airframe=50000, version="v1.17.0")
-    path = variant("oldpx4", agents={"rover1": {"platform": str(old)}})
+def test_unreadable_file(tmp_path):
+    missing = tmp_path / "missing.yaml"
+    with pytest.raises(InvalidEnvironment, match=rf"^{missing}: "):
+        Environment.load(missing)
+
+
+@pytest.mark.generating_files
+def test_invalid_agent_yaml(environment, platform_dir):
+    old = platform_dir("old_px4", airframe=50000, version="v1.17.0")
     with pytest.raises(InvalidEnvironment, match=rf"{old / 'agent.yaml'}.*v1\.17\.0.*minimum is 1\.18"):
-        Environment.load(path)
+        environment("oldpx4", agents={"rover1": {"platform": str(old)}})

@@ -15,6 +15,7 @@ from simops.agent import entity_factory
 from simops.environment import Environment
 from simops.world import EmptySpec, WorldFile
 from worldgen import empty, room
+from worldgen.world import SdfWorld
 
 if TYPE_CHECKING:
     from simops.firmware import PX4Firmware
@@ -155,13 +156,14 @@ until timeout 10 gz topic -e -t "/world/$W/pose/info" -n 1 >/dev/null 2>&1; do s
 """
 
 
-def prepare_agents(environment: Environment, world: str, out: Path) -> list[dict]:
-    """Write spawn.sh for every agent; return everyone's bridge entries.
+def agents(environment: Environment) -> tuple[list[str], list[dict], dict[str, Path], dict[str, str]]:
+    """Say how to spawn every agent; return the spawn lines, everyone's bridge entries, and the copies.
 
-    With namespaces, each agent gets its own copy of the model whose gz topics sit
-    under /<agent>, and the bridge maps them to ROS names under /<agent> too.
+    With namespaces, each agent gets its own copy of its platform, `<p>.<agent>`, whose model's gz
+    topics sit under /<agent>, and the bridge maps them to ROS names under /<agent> too. The copies
+    are the platform directories to copy and the rewritten model.sdf of each.
     """
-    bridge, spawns = [], []
+    bridge, spawns, copies, models = [], [], {}, {}
     for agent, spec in environment.agents.items():
         platform = spec.platform.name
         entries = yaml.safe_load(spec.platform.bridge.read_text())
@@ -171,8 +173,8 @@ def prepare_agents(environment: Environment, world: str, out: Path) -> list[dict
                 if el.tag in ("topic", "odom_topic") and el.text:  # sensors, odometry: not model-scoped
                     el.text = namespaced(agent, el.text)
             platform = f"{platform}.{agent}"
-            shutil.copytree(spec.platform.dir, out / "platforms" / platform)
-            model.write(out / "platforms" / platform / "model.sdf", xml_declaration=True)
+            copies[platform] = spec.platform.dir
+            models[platform] = ET.tostring(model.getroot(), encoding="us-ascii", xml_declaration=True).decode()
             for e in entries:
                 if e["gz_topic_name"] != "/clock":  # one clock for the whole world
                     e["gz_topic_name"] = namespaced(agent, e["gz_topic_name"])
@@ -180,63 +182,95 @@ def prepare_agents(environment: Environment, world: str, out: Path) -> list[dict
         bridge += [e for e in entries if e not in bridge]
         request = entity_factory(agent, f"/sim/platforms/{platform}/model.sdf", spec.pose)
         spawns.append(f"spawn {agent} '{request}'")
-    (out / "spawn.sh").write_text(SPAWN.format(world=world, agents="\n".join(spawns)))
-    return bridge
+    return spawns, bridge, copies, models
 
 
 class Bundle(BaseModel):
-    """An environment built for docker compose in build/<name>/."""
+    """An environment built for docker compose; in memory until `write` puts it in a directory."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
 
     environment: Environment
-    dir: Path
-    compose: dict
     world_name: str
+    world: SdfWorld | Path  # generated, or the ready-made file to copy
+    world_file: str  # its name in worlds/
+    world_summary: str | None  # what worldgen generated, None for a ready-made file
+    compose: dict
+    spawn: str
+    bridge: list[dict]
+    platforms: dict[str, Path]  # name in platforms/ -> the directory to copy
+    models: dict[str, str]  # name in platforms/ -> its rewritten model.sdf
+    firmware_lines: list[str]
+
+    def write(self, out: Path) -> Path:
+        """Write compose.yaml, spawn.sh, bridge.yaml, worlds/ and platforms/ to `out`, replacing it."""
+        shutil.rmtree(out, ignore_errors=True)
+        (out / "worlds").mkdir(parents=True)
+        for name, source in self.platforms.items():
+            shutil.copytree(source, out / "platforms" / name)
+        for name, model in self.models.items():
+            (out / "platforms" / name / "model.sdf").write_text(model)
+        sdf = out / "worlds" / self.world_file
+        if isinstance(self.world, Path):
+            shutil.copy(self.world, sdf)
+        else:
+            sdf.write_text(self.world.sdf())
+        if self.world_summary is not None:
+            print(f"{sdf}: {self.world_summary}", flush=True)
+        for line in self.firmware_lines:
+            print(line, flush=True)
+        (out / "spawn.sh").write_text(self.spawn)
+        (out / "bridge.yaml").write_text(yaml.safe_dump(self.bridge, sort_keys=False))
+        (out / "compose.yaml").write_text(yaml.safe_dump(self.compose, sort_keys=False))
+        return out
 
 
 def build(environment: Environment) -> Bundle:
-    """Write the bundle build/<name>/: compose.yaml, spawn.sh, bridge.yaml, worlds/, platforms/."""
-    out = ROOT / "build" / environment.name
-    shutil.rmtree(out, ignore_errors=True)
-    (out / "worlds").mkdir(parents=True)
+    """Build the environment's bundle in memory: reads the platforms and the world, writes nothing."""
     # the platforms and the models they borrow from (meshes of another platform: model://<name>/...)
-    platforms = {agent.platform.dir for agent in environment.agents.values()}
-    for platform in list(platforms):
+    dirs = {agent.platform.dir for agent in environment.agents.values()}
+    for platform in list(dirs):
         borrowed = re.findall(r"model://([^/<]+)/", (platform / "model.sdf").read_text())
-        platforms |= {platform.parent / name for name in borrowed}
-    for p in platforms:
-        shutil.copytree(p, out / "platforms" / p.name)
+        dirs |= {platform.parent / name for name in borrowed}
 
     source = environment.world.source
+    # ponytail: clearance from the first agent's platform; pass the widest if they differ a lot
+    clearance = next(iter(environment.agents.values())).platform.width() * 1.1
+    world: SdfWorld | Path
     if isinstance(source, WorldFile):
-        sdf = out / "worlds" / source.path.name
-        shutil.copy(source.path, sdf)
+        world, world_file, summary = source.path, source.path.name, None
+        world_el = ET.parse(source.path).find("world")
+        if world_el is None or not world_el.get("name"):
+            sys.exit(f"{source.path}: no <world name=...>")
+        world_name = world_el.get("name", "")
     elif isinstance(source, EmptySpec):
-        sdf = out / "worlds" / "room.sdf"
-        # ponytail: clearance from the first agent's platform; pass the widest if they differ a lot
-        first = next(iter(environment.agents.values())).platform
-        print(empty.generate(sdf, clearance=first.width() * 1.1), flush=True)
+        world, world_file = empty.world(clearance=clearance), "room.sdf"
+        summary, world_name = empty.summary(clearance=clearance), world.name
     else:
-        sdf = out / "worlds" / "room.sdf"
-        # ponytail: clearance from the first agent's platform; pass the widest if they differ a lot
-        first = next(iter(environment.agents.values())).platform
         room_args = {"size": source.size} if source.size is not None else {}
         if source.obstacles is not None:
             room_args["obstacles"] = source.obstacles
-        print(room.generate(sdf, clearance=first.width() * 1.1, seed=source.seed, **room_args), flush=True)
-    world_el = ET.parse(sdf).find("world")
-    if world_el is None or not world_el.get("name"):
-        sys.exit(f"{sdf}: no <world name=...>")
-    world_name = world_el.get("name", "")
-    bridge = prepare_agents(environment, world_name, out)
-    (out / "bridge.yaml").write_text(yaml.safe_dump(bridge, sort_keys=False))
-    firmware = {}
+        world, world_file = room.world(clearance=clearance, seed=source.seed, **room_args), "room.sdf"
+        summary = room.summary(world, clearance=clearance, seed=source.seed, **room_args)
+        world_name = world.name
+
+    spawns, bridge, copies, models = agents(environment)
+    firmware, firmware_lines = {}, []
     for agent in environment.agents.values():
         px4 = agent.platform.px4.firmware
         if px4 not in firmware:
             ref, commit = firmware[px4] = px4.resolve()
-            print(f"PX4 {commit}" if ref == commit else f"PX4 {ref} = {commit}", flush=True)
-    spec = compose(environment, sdf.stem, world_name, firmware)
-    (out / "compose.yaml").write_text(yaml.safe_dump(spec, sort_keys=False))
-    return Bundle(environment=environment, dir=out, compose=spec, world_name=world_name)
+            firmware_lines.append(f"PX4 {commit}" if ref == commit else f"PX4 {ref} = {commit}")
+    return Bundle(
+        environment=environment,
+        world_name=world_name,
+        world=world,
+        world_file=world_file,
+        world_summary=summary,
+        compose=compose(environment, Path(world_file).stem, world_name, firmware),
+        spawn=SPAWN.format(world=world_name, agents="\n".join(spawns)),
+        bridge=bridge,
+        platforms={d.name: d for d in dirs} | copies,
+        models=models,
+        firmware_lines=firmware_lines,
+    )
