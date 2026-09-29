@@ -1,0 +1,11 @@
+#!/bin/sh
+# pixi as the Python extension sees it (`python.pixiToolPath` in settings.json).
+#
+# ms-python.python gets a pixi env's variables by running, in the background,
+# `pixi shell --manifest-path ... && python printEnvVariables.py` (getPixiActivationCommands;
+# still so on vscode-python main, 2026-09-29). Without a terminal `pixi shell` waits on stdin until
+# the extension kills it after 30 s -- before every test run -- and the tests then run unactivated
+# anyway. So without a terminal `shell` returns at once; in a terminal, and for every other
+# subcommand, this is plain pixi.
+if [ "$1" = shell ] && [ ! -t 0 ]; then exit 0; fi
+exec "$(command -v pixi || echo "$HOME/.pixi/bin/pixi")" "$@"
