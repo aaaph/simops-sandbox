@@ -1,9 +1,9 @@
-"""The SDF world envelope every worldgen world type shares, and the model snippets built into it.
+"""SDF as text: the envelope every worldgen world shares and the XML of one static model.
 
 Physics, sensor plugins, the GUI, the arrow-key drive triggers, the sun and the ground plane are
-the same regardless of what a world type puts inside it (a room's walls and obstacles, an open
-field's nothing, a future maze's corridors); `world()` wraps them, a type's own module decides
-what `parts` go inside. worldgen knows nothing of simops.
+the same regardless of what a world holds (a room's walls and obstacles, an open field's start
+marker, a future maze's corridors); `envelope()` wraps them around the models. What the models
+are is `worldgen.world`'s concern; worldgen knows nothing of simops.
 """
 
 import re
@@ -28,25 +28,6 @@ def gui_section() -> str:
     return f'<gui fullscreen="0">\n{body}\n{key_pub}\n    </gui>'
 
 
-def start_marker(clearance: float) -> str:
-    """Visual-only disc at the origin: where the robot starts and odom is zeroed."""
-    radius = clearance / 2 * 1.2
-    return f"""    <model name="start_marker">
-      <static>true</static>
-      <pose>0 0 0.005 0 0 0</pose>
-      <link name="link">
-        <visual name="v">
-          <geometry><cylinder><radius>{radius:.3f}</radius><length>0.01</length></cylinder></geometry>
-          <material>
-            <ambient>0.8 0.1 0.1 1</ambient>
-            <diffuse>0.8 0.1 0.1 1</diffuse>
-            <emissive>0.3 0.0 0.0 1</emissive>
-          </material>
-        </visual>
-      </link>
-    </model>"""
-
-
 def model(name: str, x: float, y: float, z: float, yaw: float, geom: str, rgba: str) -> str:
     """One static SDF model: same geometry for collision and visual."""
     return f"""    <model name="{name}">
@@ -62,8 +43,8 @@ def model(name: str, x: float, y: float, z: float, yaw: float, geom: str, rgba: 
     </model>"""
 
 
-def world(name: str, parts: list[str]) -> str:
-    """Wrap `parts` (model/light XML snippets) in the envelope every world type shares."""
+def envelope(name: str, models: list[str]) -> str:
+    """Wrap `models` (model/light XML snippets) in the envelope every world type shares."""
     return f"""<?xml version="1.0"?>
 <sdf version="1.8">
   <world name="{name}">
@@ -170,7 +151,7 @@ def world(name: str, parts: list[str]) -> str:
       </link>
     </model>
 
-{chr(10).join(parts)}
+{chr(10).join(models)}
   </world>
 </sdf>
 """

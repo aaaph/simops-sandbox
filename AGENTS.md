@@ -29,7 +29,8 @@ it, the platforms it uses) and runs the bundle as a session, with `GZ_PARTITION=
 from any directory of the project, or plain `simops …` inside `pixi shell`; relative paths are
 resolved where the command runs. Code: `src/simops/` (one module per glossary entity:
 `environment`, `world`, `platform`, `agent`, `firmware`, `bundle`, `session`, `cli`),
-`src/worldgen/` (`room`: generate a room, `worldgen room --help`), tests in `tests/`.
+`src/worldgen/` (`world`: the parts of an SDF world, `room` and `empty`: the world types,
+`worldgen room --help`), tests in `tests/`.
 
 **Clean up after yourself:** containers you started to check or verify something, you stop —
 `simops down`, or `simops run`, which does it for you. Leave running only what the user asked to

@@ -40,11 +40,18 @@ context: |
     platform's agent.yaml and resolved at `build` to one commit. Spec: autopilot.
 
   World generation (worldgen; knows nothing of simops -- no platforms, agents, environments):
+  - SDF world: what worldgen produces, a name and its parts inside the envelope every world shares
+    (SdfWorld in worldgen.world; not simops' world source). Spec: worldgen.
+  - wall: a part given by a segment, with square end caps so walls meeting at a point close the
+    corner (Wall). Spec: worldgen.
+  - obstacle: a part placed in a room, a footprint disc and a shape inscribed in it, box or
+    cylinder (Obstacle, Shape); a shape can change without breaking the room. Spec: worldgen.
+  - start marker: the visual-only disc at the origin, the spawn point (StartMarker).
   - room: an SDF world with walls and obstacles, every gap at least the clearance wide and every
-    free cell reachable from the origin; the same seed gives the same room.
-  - obstacle: a box or cylinder placed in a room.
-  - open field: an SDF world with the ground and a start marker only, no walls and no obstacles
-    (worldgen.empty; a room is worldgen.room).
+    free cell reachable from the origin; the same seed gives the same room (worldgen.room).
+    Spec: worldgen.
+  - open field: an SDF world whose only part is the start marker, no walls and no obstacles
+    (worldgen.empty).
   - clearance: the narrowest gap a robot needs; the caller (simops) derives it from a platform.
 
   Robot software (the user's):
