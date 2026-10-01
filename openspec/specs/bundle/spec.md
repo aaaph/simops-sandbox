@@ -16,8 +16,8 @@ every model those platforms reference through `model://<name>/` URIs. Building a
 replace the previous bundle entirely.
 
 #### Scenario: Platform borrowing meshes
-- **WHEN** an agent's platform references `model://rover_differential_lidar/meshes/...`
-- **THEN** the bundle contains both that platform and `platforms/rover_differential_lidar/meshes`
+- **WHEN** an agent's platform references another model, `model://<other>/meshes/...`
+- **THEN** the bundle contains both that platform and `platforms/<other>/meshes`
 
 #### Scenario: Bundles elsewhere
 - **WHEN** `SIMOPS_BUILD_DIR=/tmp/bundles simops build rover_room.yaml` runs

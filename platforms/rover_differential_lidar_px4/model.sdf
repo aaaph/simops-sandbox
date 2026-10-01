@@ -1,9 +1,8 @@
 <?xml version="1.0"?>
 <sdf version="1.6">
   <model name='rover_differential_lidar_px4'>
-    <!-- rover_differential_lidar driven by PX4 (Docker sim): the IMU on PX4's
-         default topic at 250 Hz and no DiffDrive, so gz_bridge owns the wheels.
-         Meshes come from rover_differential_lidar; keep the two in step. -->
+    <!-- Differential rover with a lidar, driven by PX4 (Docker sim): the IMU on PX4's
+         default topic at 250 Hz and no DiffDrive, so gz_bridge owns the wheels. -->
     <!--Links-->
     <link name='base_link'>
       <pose relative_to='__model__'>0 0 0.1 0 0 0</pose>  <!-- model origin == base_link == wheel axle -->
@@ -23,7 +22,7 @@
         <pose>0.2 0 -0.05 0 0 0</pose>
         <geometry>
           <mesh>
-            <uri>model://rover_differential_lidar/meshes/rover_differential_base.dae</uri>
+            <uri>model://rover_differential_lidar_px4/meshes/rover_differential_base.dae</uri>
           </mesh>
         </geometry>
       </visual>
@@ -159,7 +158,7 @@
         <pose>0 0 0 0 0 0</pose>
         <geometry>
           <mesh>
-            <uri>model://rover_differential_lidar/meshes/rover_differential_wheel.dae</uri>
+            <uri>model://rover_differential_lidar_px4/meshes/rover_differential_wheel.dae</uri>
           </mesh>
         </geometry>
       </visual>
@@ -204,7 +203,7 @@
         <pose>0 0 0 0 0 0</pose>
         <geometry>
           <mesh>
-            <uri>model://rover_differential_lidar/meshes/rover_differential_wheel.dae</uri>
+            <uri>model://rover_differential_lidar_px4/meshes/rover_differential_wheel.dae</uri>
           </mesh>
         </geometry>
       </visual>

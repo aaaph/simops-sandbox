@@ -91,15 +91,15 @@ def environment_file(tmp_path: Path):  # noqa: ANN201 -- returns the maker below
 def platform_dir(tmp_path: Path):  # noqa: ANN201 -- returns the maker below
     """Copy the PX4 platform to tmp_path/platforms/<name> with its `autopilot.px4` replaced.
 
-    model.sdf and bridge.yaml are links; the platform whose meshes it borrows is linked next to it.
+    model.sdf and bridge.yaml are links; the PX4 platform, whose meshes it borrows, is linked next to it.
     """
 
     def make(name: str, **px4: object) -> Path:
         platforms = tmp_path / "platforms"
-        borrowed = platforms / "rover_differential_lidar"
+        borrowed = platforms / PX4_PLATFORM.name
         if not borrowed.exists():
             platforms.mkdir(exist_ok=True)
-            borrowed.symlink_to(ROOT / "platforms/rover_differential_lidar")
+            borrowed.symlink_to(PX4_PLATFORM)
         out = platforms / name
         out.mkdir()
         for f in ("model.sdf", "bridge.yaml"):

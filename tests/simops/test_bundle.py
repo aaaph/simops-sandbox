@@ -19,8 +19,7 @@ COMMIT = "4dbd2e069a5c30c2e53e47e842095d2576dc38c4"
 def test_rover_room_bundle(environment):
     bundle = build(environment("rover_room"))
     services = bundle.compose["services"]
-    # its meshes come from the plain platform, model://rover_differential_lidar/meshes/...
-    assert set(bundle.platforms) == {"rover_differential_lidar_px4", "rover_differential_lidar"}
+    assert set(bundle.platforms) == {"rover_differential_lidar_px4"}  # its meshes are its own
 
     # first the world, then the agents: the world holds none, spawn.sh adds them
     assert "W=field" in bundle.spawn  # the open field of the test environment
@@ -43,7 +42,7 @@ def test_rover_room_bundle(environment):
 def test_bundle_on_disk(tmp_path):
     out = build(Environment.load(SMALL_ROOM)).write(tmp_path / "small_room")
     assert (out / "platforms/rover_differential_lidar_px4/model.sdf").exists()
-    assert (out / "platforms/rover_differential_lidar/meshes").is_dir()
+    assert (out / "platforms/rover_differential_lidar_px4/meshes").is_dir()
     assert ET.parse(out / "worlds/room.sdf").find("world/include") is None
     assert "W=room" in (out / "spawn.sh").read_text()
     assert (out / "compose.yaml").exists()
