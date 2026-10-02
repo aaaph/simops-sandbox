@@ -94,6 +94,9 @@ line-ending = "auto"
     "S603", # It runs docker and ros2 with constant arguments
     "S607", # `docker` and `ros2` are looked up on PATH on purpose
 ]
+"scenarios/*.py" = [
+    "T201", # A scenario run by hand reports its progress
+]
 "src/worldgen/*.py" = [
     "T201",    # A CLI generator reports what it generated
     "S311",    # Map layout wants a seeded RNG, not a cryptographic one

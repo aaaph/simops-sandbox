@@ -50,7 +50,12 @@ writes), `sim-lifecycle` (`up`/`down`/`run`), `agent-spawn` (first the world, th
 `autopilot`. Change behavior through an OpenSpec change, not by editing code alone. Tests:
 `pixi run test` (unit: in memory, and `generating_files` -- write real files, start no container;
 about a second) and `pixi run pytest -m docker` (start sessions, minutes); `-m generating_files` or
-`-m "not generating_files"` picks one kind of unit test.
+`-m "not generating_files"` picks one kind of unit test. A scenario test (a task in a session and
+its success criteria, driven like a user would: MAVSDK, ROS) is marked `docker` and `scenario`:
+`-m scenario` runs the scenarios alone, `-m "docker and not scenario"` the session lifecycle.
+The same scenarios as scripts to run by hand against a session that is up, in `scenarios/`
+(`pixi run simops up environments/rover_empty_world.yaml`, then `pixi run python
+scenarios/square_mission.py`); the tests do not import them.
 
 Unit tests are written for fast, cheap runs, in memory first:
 - assert on values — `Environment.parse`, `Platform.parse`, `bundle.build`, `room.world` /

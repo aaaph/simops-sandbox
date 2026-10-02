@@ -36,3 +36,6 @@ pyyaml = ">=6.0.3,<7"
 [pypi-dependencies]
 # src/simops and src/worldgen, editable: the `simops` and `worldgen` commands run where they are called
 simops-sandbox = { path = ".", editable = true }
+# MAVSDK for the scenario tests: the MAVSDK-Python 3.x API (imported as mavsdk_grpc), not on
+# conda; `mavsdk` 4 has another API and only macOS 15 wheels
+mavsdk-grpc = ">=3.17.4, <4"

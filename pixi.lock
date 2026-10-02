@@ -762,6 +762,9 @@ environments:
       - conda: https://prefix.dev/robostack-lyrical/osx-arm64/ros2-zenoh-cpp-vendor-0.10.5-np2py314h381a90a_25.conda
       - conda: https://prefix.dev/robostack-lyrical/osx-arm64/ros2-zstd-cmake-module-0.33.3-np2py314h2e2674b_25.conda
       - pypi: ./
+      - pypi: https://files.pythonhosted.org/packages/32/72/98342feb672507c8f3a69e34b4fa8961f608edba5c1a48a6f47156d92cb5/protobuf-7.36.2-cp310-abi3-macosx_10_9_universal2.whl
+      - pypi: https://files.pythonhosted.org/packages/bc/fd/4c5a245e1d714c6461e457b767f3ff20d4b88868793fa4a9984da2324b29/mavsdk_grpc-3.17.4-py3-none-macosx_14_0_arm64.whl
+      - pypi: https://files.pythonhosted.org/packages/cd/b4/6b76b429f3f9b901cdbc306c81364d708bc957f847a05cbd1046cd2d05d8/grpcio-1.84.0-cp314-cp314-macosx_11_0_universal2.whl
 packages:
 - conda: https://prefix.dev/conda-forge/noarch/_python_abi3_support-1.0-hd8ed1ab_3.conda
   sha256: 2a7204314663eeda5dec482a956f0e2eaf289bd5b9953eaaaad0e81aa64638f2
@@ -14175,3 +14178,24 @@ packages:
   - testcontainers>=4.14
   - typer>=0.27
   requires_python: '>=3.12'
+- pypi: https://files.pythonhosted.org/packages/32/72/98342feb672507c8f3a69e34b4fa8961f608edba5c1a48a6f47156d92cb5/protobuf-7.36.2-cp310-abi3-macosx_10_9_universal2.whl
+  name: protobuf
+  version: 7.36.2
+  sha256: cbc70b17ee27e28894c7fee8bb04be1abead49e936bc70eb60052531eee2079e
+  requires_python: '>=3.10'
+- pypi: https://files.pythonhosted.org/packages/bc/fd/4c5a245e1d714c6461e457b767f3ff20d4b88868793fa4a9984da2324b29/mavsdk_grpc-3.17.4-py3-none-macosx_14_0_arm64.whl
+  name: mavsdk-grpc
+  version: 3.17.4
+  sha256: c36a5f1ca7239d1194c36f460b3fe520138de47e805410238184d4e5759ac14e
+  requires_dist:
+  - protobuf>=6.32.1
+  - grpcio>=1.64.1
+  requires_python: '>=3.7'
+- pypi: https://files.pythonhosted.org/packages/cd/b4/6b76b429f3f9b901cdbc306c81364d708bc957f847a05cbd1046cd2d05d8/grpcio-1.84.0-cp314-cp314-macosx_11_0_universal2.whl
+  name: grpcio
+  version: 1.84.0
+  sha256: 3de427b05f244ba2c2a9bdc67e7a6731c8340811524ecc4435466549f8af1d17
+  requires_dist:
+  - typing-extensions~=4.12
+  - grpcio-tools>=1.84.0 ; extra == 'protobuf'
+  requires_python: '>=3.10'

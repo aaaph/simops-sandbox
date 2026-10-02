@@ -32,7 +32,8 @@ context: |
   - session: a running bundle, from `up` to `down`; one compose project, one gz partition; found
     from its containers, by the labels of its bundle. Spec: sim-lifecycle.
   - scenario: reserved for what happens in a session (task, world events, success criteria);
-    never the environment. OpenSpec's "#### Scenario:" blocks are the tool's own word.
+    never the environment. A scenario test runs one (pytest marker `scenario`). OpenSpec's
+    "#### Scenario:" blocks are the tool's own word.
   - sim-only: channels no real robot has, /sim/* and /clock (target: /ground_truth moves under
     /sim/ with the change sim-oracle-namespace).
   - ground truth: the simulator's true state (pose, map, start pose), for evaluation only.
@@ -95,7 +96,7 @@ context: |
     over ~50 ms (`pytest --durations`) is a reason to look for that work. Code keeps computing
     apart from I/O so it can be tested this way. A test whose behavior is a file is marked
     `generating_files`; a test that starts containers is `docker` instead, whatever files it
-    writes.
+    writes; a scenario test is a Docker test marked `scenario` too.
   - Tests never touch the repository's own files at run time beyond reading code and platforms:
     they write only to pytest's temporary directories (bundles go there through
     `SIMOPS_BUILD_DIR`) and use their own environments (tests/simops/environments/, the
