@@ -164,6 +164,13 @@ only the glvnd dispatcher, so Ogre segfaults when the rover's gpu_lidar spawns);
 4 (its optical-flow gz plugin uses C headers OpenCV 5 dropped) and a system gcc (its idlc host tool
 hardcodes `/usr/bin/gcc`).
 
+MAVLink from the host: QGC (listening on 14550) finds every agent by itself, PX4's GCS link sends
+to the host. Host code (MAVSDK, a script) talks to agent `i`'s API link at
+`udpout://localhost:<network.mavlink_port + i>` (default 14580), the port the bundle publishes on
+`zenoh-router` — so a second session on the same port fails `up`. PX4 answers whoever writes
+first and keeps that partner for its lifetime: one host client per agent per session; another
+one gets nothing until `docker compose -p <name> restart px4-<agent>`.
+
 Only one source of manual control wins in PX4: with QGC's virtual joystick on, sticks sent from
 a script on another MAVLink link are ignored.
 

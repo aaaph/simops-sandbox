@@ -178,9 +178,10 @@ class Session:
             time.sleep(3)
         agents = ", ".join(self.environment.agents)
         port = self.environment.network.router_port
+        mav, last = self.environment.network.mavlink_port, len(self.environment.agents) - 1
         print(
             f"{name} up in {time.monotonic() - started:.0f} s: {agents} in world {bundle.world_name!r}, "
-            f"router localhost:{port}",
+            f"router localhost:{port}, mavlink udp localhost:{mav}{f'-{mav + last}' if last else ''}",
             flush=True,
         )
         return 0

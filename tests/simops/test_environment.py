@@ -18,6 +18,12 @@ def test_defaults():
     environment = Environment.parse(doc, base=ROOT, origin=Path("defaults.yaml"))
     assert environment.namespaces is False
     assert environment.network.router_port == 7447
+    assert environment.network.mavlink_port == 14580
+
+
+def test_mavlink_port(environment):
+    network = environment("mav", network={"mavlink_port": 14590}).network
+    assert (network.router_port, network.mavlink_port) == (7447, 14590)
 
 
 def test_paths_relative_to_environment_file(monkeypatch):

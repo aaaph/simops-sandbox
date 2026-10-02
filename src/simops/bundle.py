@@ -81,7 +81,10 @@ def compose(
         "zenoh-router": {
             **ros,
             "restart": "always",
-            "ports": [f"{port}:7447/tcp", f"{port}:7447/udp"],
+            # each agent's PX4 API link (14580 + its instance in the shared namespace) on the host;
+            # a taken host port makes `up` fail, so no two sessions share an agent's MAVLink address
+            "ports": [f"{port}:7447/tcp", f"{port}:7447/udp"]
+            + [f"{environment.network.mavlink_port + i}:{14580 + i}/udp" for i in range(len(environment.agents))],
             # connects and sessions at debug, the rest at info: docker compose logs zenoh-router
             "environment": {
                 "RUST_LOG": "zenoh=info,zenoh_link_tcp::unicast=debug,"

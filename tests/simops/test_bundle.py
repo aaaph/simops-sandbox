@@ -106,7 +106,15 @@ def test_compose_wiring(environment):
         assert services[name]["depends_on"]["world"] == {"condition": "service_started", "restart": True}
     assert services["px4-rover1"]["image"] == f"simops-sandbox-px4:{RC1[:12]}"  # rover_room: v1.18.0-rc1
     assert compose["name"] == "rover_room"
-    assert services["zenoh-router"]["ports"] == ["7447:7447/tcp", "7447:7447/udp"]
+    assert services["zenoh-router"]["ports"] == ["7447:7447/tcp", "7447:7447/udp", "14580:14580/udp"]
+
+
+def test_mavlink_ports(environment):
+    one = build(environment("mav", network={"mavlink_port": 14590})).compose["services"]["zenoh-router"]
+    assert "14590:14580/udp" in one["ports"]
+    two = {"rover1": {"platform": "x", "pose": [0, 0, 0.2]}, "rover2": {"platform": "x", "pose": [2, 0, 0.2]}}
+    pair = build(environment("mav_pair", namespaces=True, agents=two)).compose["services"]["zenoh-router"]
+    assert pair["ports"][2:] == ["14580:14580/udp", "14581:14581/udp"]
 
 
 @pytest.mark.parametrize(

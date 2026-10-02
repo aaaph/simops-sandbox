@@ -1,12 +1,14 @@
 """The session lifecycle against Docker: up, down, run, world restart, namespaces, isolation.
 
 Slow (a minute or more per test) and needs the images built: `pixi run pytest -m docker`.
-Each test runs a copy of rover_room under its own name and router port, so it neither
-collides with a rover_room someone keeps up nor with another test.
+Each test runs a copy of rover_room under its own name, router port and MAVLink port, so it
+neither collides with a rover_room someone keeps up nor with another test.
 """
 
 import os
 import shutil
+import socket
+import struct
 import subprocess
 import time
 from pathlib import Path
@@ -17,7 +19,7 @@ from typer.testing import CliRunner
 
 from simops.bundle import build
 from simops.cli import app
-from simops.environment import Environment
+from simops.environment import Environment, Network
 from simops.session import Session
 from worldgen import room
 
@@ -30,12 +32,17 @@ WORLD = {"generate_room": {"size": [25, 21]}}
 TIMEOUT = 300
 
 
+def mavlink_port(router_port: int) -> int:
+    """Give the test's own MAVLink port, 10 apart per router port: room for the agents' ranges."""
+    return 14600 + (router_port - 7460) * 10
+
+
 def environment(tmp_path: Path, name: str, port: int, agents: list[str], namespaces: bool = False) -> Session:
-    """Give a room with the given agents 2 m apart, under its own name and port."""
+    """Give a room with the given agents 2 m apart, under its own name and ports."""
     sim = {
         "name": name,
         "namespaces": namespaces,
-        "network": {"router_port": port},
+        "network": {"router_port": port, "mavlink_port": mavlink_port(port)},
         "world": WORLD,
         "agents": {a: {"platform": PX4_PLATFORM, "pose": [2 * i, 0, 0.2]} for i, a in enumerate(agents)},
     }
@@ -83,6 +90,37 @@ def ros_topics(sim: Session, expected: set[str], timeout: float = 60) -> set[str
     return topics
 
 
+def x25(data: bytes) -> int:
+    """MAVLink's checksum (CRC-16/MCRF4XX)."""
+    crc = 0xFFFF
+    for b in data:
+        t = (b ^ crc) & 0xFF
+        t = (t ^ (t << 4)) & 0xFF
+        crc = ((crc >> 8) ^ (t << 8) ^ (t << 3) ^ (t >> 4)) & 0xFFFF
+    return crc
+
+
+def heartbeat() -> bytes:
+    """Give a MAVLink 1 HEARTBEAT from a ground station (system 255): enough for PX4 to take us as its partner."""
+    header = struct.pack("<BBBBB", 9, 0, 255, 190, 0)  # length, seq, system, component, msg id 0
+    payload = struct.pack("<IBBBBB", 0, 6, 8, 0, 0, 3)  # custom mode, GCS, no autopilot, modes, version 3
+    return b"\xfe" + header + payload + struct.pack("<H", x25(header + payload + bytes([50])))  # 50: CRC extra
+
+
+def mavlink_frame(port: int, timeout: float = 30) -> bytes | None:
+    """Write HEARTBEATs to localhost:port until PX4 answers with a MAVLink frame, or None."""
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+        s.settimeout(1)
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:  # PX4 ignores a non-local partner for its first 3 s
+            s.sendto(heartbeat(), ("127.0.0.1", port))
+            try:
+                return s.recv(65535)
+            except TimeoutError:
+                continue
+    return None
+
+
 @pytest.fixture
 def cleanup():
     """Sessions to tear down after the test, whatever happens."""
@@ -110,7 +148,7 @@ def test_failed_up_leaves_nothing(tmp_path, cleanup):
     room.generate(world, clearance=0.9)
     sim = {
         "name": "t_timeout",
-        "network": {"router_port": 7462},
+        "network": {"router_port": 7462, "mavlink_port": mavlink_port(7462)},
         "world": {"file": str(world)},
         "agents": {"rover1": {"platform": str(broken), "pose": [0, 0, 0.2]}},
     }
@@ -209,3 +247,26 @@ def test_plain_compose_session_found(tmp_path, cleanup):
     shutil.rmtree(sim.dir)  # down needs no bundle
     assert CliRunner().invoke(app, ["down", "t_plain"]).exit_code == 0
     assert containers(sim) == []
+
+
+def test_mavlink_on_the_published_port(tmp_path, cleanup):
+    sim = environment(tmp_path, "t_mav", 7471, ["rover1"])
+    cleanup.append(sim)
+    assert sim.up(TIMEOUT) == 0
+    frame = mavlink_frame(mavlink_port(7471))
+    assert frame is not None, "no MAVLink from rover1's PX4"
+    assert frame[0] == 0xFD  # MAVLink 2
+    assert frame[5] == 1  # system id: PX4 instance 0
+
+
+def test_mavlink_port_taken(tmp_path, cleanup):
+    a = environment(tmp_path, "t_mav_a", 7472, ["rover1"])
+    b = environment(tmp_path, "t_mav_b", 7473, ["rover1"])
+    b = Session(
+        b.environment.model_copy(update={"network": Network(router_port=7473, mavlink_port=mavlink_port(7472))})
+    )
+    cleanup += [a, b]
+    assert a.up(TIMEOUT) == 0
+    assert b.up(TIMEOUT) != 0  # Docker: the port is already allocated
+    assert containers(b) == []
+    assert containers(a)

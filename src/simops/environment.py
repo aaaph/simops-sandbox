@@ -18,11 +18,13 @@ class InvalidEnvironment(Exception):  # noqa: N818 -- the glossary's word, not "
 
 
 class Network(BaseModel):
-    """`network:` -- where host ROS and the gz GUI reach the session."""
+    """`network:` -- where host ROS, the gz GUI and MAVLink clients reach the session."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     router_port: int = 7447
+    # host UDP port of the first agent's PX4 API link; agent i (its PX4 instance) gets mavlink_port + i
+    mavlink_port: int = 14580
 
 
 class Environment(BaseModel):
