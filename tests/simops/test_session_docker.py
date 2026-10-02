@@ -8,7 +8,6 @@ neither collides with a rover_room someone keeps up nor with another test.
 import os
 import shutil
 import socket
-import struct
 import subprocess
 import time
 from pathlib import Path
@@ -90,35 +89,15 @@ def ros_topics(sim: Session, expected: set[str], timeout: float = 60) -> set[str
     return topics
 
 
-def x25(data: bytes) -> int:
-    """MAVLink's checksum (CRC-16/MCRF4XX)."""
-    crc = 0xFFFF
-    for b in data:
-        t = (b ^ crc) & 0xFF
-        t = (t ^ (t << 4)) & 0xFF
-        crc = ((crc >> 8) ^ (t << 8) ^ (t << 3) ^ (t >> 4)) & 0xFFFF
-    return crc
-
-
-def heartbeat() -> bytes:
-    """Give a MAVLink 1 HEARTBEAT from a ground station (system 255): enough for PX4 to take us as its partner."""
-    header = struct.pack("<BBBBB", 9, 0, 255, 190, 0)  # length, seq, system, component, msg id 0
-    payload = struct.pack("<IBBBBB", 0, 6, 8, 0, 0, 3)  # custom mode, GCS, no autopilot, modes, version 3
-    return b"\xfe" + header + payload + struct.pack("<H", x25(header + payload + bytes([50])))  # 50: CRC extra
-
-
 def mavlink_frame(port: int, timeout: float = 30) -> bytes | None:
-    """Write HEARTBEATs to localhost:port until PX4 answers with a MAVLink frame, or None."""
+    """Listen on the host's port, as MAVSDK's udpin does, for one MAVLink frame from PX4, or None."""
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-        s.settimeout(1)
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:  # PX4 ignores a non-local partner for its first 3 s
-            s.sendto(heartbeat(), ("127.0.0.1", port))
-            try:
-                return s.recv(65535)
-            except TimeoutError:
-                continue
-    return None
+        s.bind(("0.0.0.0", port))  # noqa: S104 -- where Docker Desktop delivers what PX4 sends to the host
+        s.settimeout(timeout)
+        try:
+            return s.recv(65535)
+        except TimeoutError:
+            return None
 
 
 @pytest.fixture
@@ -249,14 +228,15 @@ def test_plain_compose_session_found(tmp_path, cleanup):
     assert containers(sim) == []
 
 
-def test_mavlink_on_the_published_port(tmp_path, cleanup):
+def test_mavlink_to_the_host(tmp_path, cleanup):
     sim = environment(tmp_path, "t_mav", 7471, ["rover1"])
     cleanup.append(sim)
     assert sim.up(TIMEOUT) == 0
-    frame = mavlink_frame(mavlink_port(7471))
-    assert frame is not None, "no MAVLink from rover1's PX4"
-    assert frame[0] == 0xFD  # MAVLink 2
-    assert frame[5] == 1  # system id: PX4 instance 0
+    for client in ("first", "second"):  # one after another, each on a new socket
+        frame = mavlink_frame(mavlink_port(7471))
+        assert frame is not None, f"no MAVLink from rover1's PX4 for the {client} client"
+        assert frame[0] == 0xFD  # MAVLink 2
+        assert frame[5] == 1  # system id: PX4 instance 0
 
 
 def test_mavlink_port_taken(tmp_path, cleanup):
@@ -267,6 +247,6 @@ def test_mavlink_port_taken(tmp_path, cleanup):
     )
     cleanup += [a, b]
     assert a.up(TIMEOUT) == 0
-    assert b.up(TIMEOUT) != 0  # Docker: the port is already allocated
+    assert b.up(TIMEOUT) != 0  # its MAVLink port is a's
     assert containers(b) == []
     assert containers(a)

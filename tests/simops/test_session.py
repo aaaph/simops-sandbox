@@ -14,18 +14,19 @@ from simops.session import (
     find,
     read_sessions,
     sessions,
+    using_mavlink,
 )
 
 # `docker ps -a` with PS_FORMAT: two simops sessions (b's world exited), a compose project of
 # another tool, and a session from a bundle built before the labels
 PS = """\
-a\ta\t7447\tzenoh-router\t/b/a\trunning
-a\ta\t7447\tworld\t/b/a\trunning
-a\ta\t7447\tspawn\t/b/a\texited
-b\tb\t7448\tzenoh-router\t/b/b\trunning
-b\tb\t7448\tworld\t/b/b\texited
-other\t\t\tdb\t/elsewhere\trunning
-old\t\t\tworld\t/b/old\trunning
+a\ta\t7447\t14540-14540\tzenoh-router\t/b/a\trunning
+a\ta\t7447\t14540-14540\tworld\t/b/a\trunning
+a\ta\t7447\t14540-14540\tspawn\t/b/a\texited
+b\tb\t7448\t14590-14591\tzenoh-router\t/b/b\trunning
+b\tb\t7448\t14590-14591\tworld\t/b/b\texited
+other\t\t\t\tdb\t/elsewhere\trunning
+old\t\t\t\tworld\t/b/old\trunning
 """
 
 
@@ -51,10 +52,19 @@ def test_containers_grouped_by_session():
     found = sessions(PS)
     assert set(found) == {"a", "b", "other", "old"}
     assert found["a"] == RunningSession(
-        "a", 7447, Path("/b/a"), {"zenoh-router": "running", "world": "running", "spawn": "exited"}
+        "a", 7447, Path("/b/a"), {"zenoh-router": "running", "world": "running", "spawn": "exited"}, (14540, 14540)
     )
     assert found["b"].router_port == 7448
     assert found["other"].router_port is None  # no simops labels
+
+
+def test_mavlink_ports_in_use():
+    found = sessions(PS)
+    assert using_mavlink(found, "c", 14540, 14540).name == "a"
+    assert using_mavlink(found, "c", 14585, 14590).name == "b"  # ranges overlap at 14590
+    assert using_mavlink(found, "c", 14541, 14589) is None
+    assert using_mavlink(found, "a", 14540, 14540) is None  # its own ports: up again
+    assert found["old"].mavlink_ports is None  # a bundle without the label is not checked
 
 
 def test_running_session_host_env():

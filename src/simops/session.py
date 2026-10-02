@@ -19,7 +19,13 @@ if TYPE_CHECKING:
 
 # one container per line, tab-separated: its compose project, the simops labels of its bundle,
 # its service, its bundle directory and its state; a label it lacks prints as an empty field
-LABELS = ("com.docker.compose.project", "simops.session", "simops.router_port", "com.docker.compose.service")
+LABELS = (
+    "com.docker.compose.project",
+    "simops.session",
+    "simops.router_port",
+    "simops.mavlink_ports",
+    "com.docker.compose.service",
+)
 PS_FORMAT = (
     "\t".join(
         [*(f'{{{{.Label "{label}"}}}}' for label in LABELS), '{{.Label "com.docker.compose.project.working_dir"}}']
@@ -61,6 +67,7 @@ class RunningSession:
     router_port: int | None  # None: a compose project whose bundle has no simops labels
     bundle: Path  # where compose ran from: build/<name>/
     services: dict[str, str]  # service -> container state
+    mavlink_ports: tuple[int, int] | None = None  # first, last host port its PX4s send to; None: no label
 
     def host_env(self) -> dict[str, str]:
         """Say what gz and ROS on the host need to reach this session."""
@@ -71,9 +78,12 @@ def sessions(ps: str) -> dict[str, RunningSession]:
     """Group the containers `DOCKER_PS` lists by compose project."""
     found: dict[str, RunningSession] = {}
     for line in filter(None, ps.splitlines()):
-        project, session, port, service, bundle, state = line.split("\t")
+        project, session, port, mavlink, service, bundle, state = line.split("\t")
         labelled = int(port) if session and port else None
-        found.setdefault(project, RunningSession(project, labelled, Path(bundle), {})).services[service] = state
+        first, _, last = mavlink.partition("-")
+        mav = (int(first), int(last)) if mavlink else None
+        running = found.setdefault(project, RunningSession(project, labelled, Path(bundle), {}, mav))
+        running.services[service] = state
     return found
 
 
@@ -96,6 +106,15 @@ def find(found: dict[str, RunningSession], name: str | None, service: str | None
     if len(labelled) > 1:
         raise SeveralUpError(f"several sessions are up, name one: {', '.join(sorted(s.name for s in labelled))}")
     return labelled[0]
+
+
+def using_mavlink(found: dict[str, RunningSession], name: str, first: int, last: int) -> RunningSession | None:
+    """Give the running session, other than `name`, whose MAVLink ports overlap first..last, if any."""
+    for s in found.values():
+        ports = s.mavlink_ports if s.name != name and "running" in s.services.values() else None
+        if ports and ports[0] <= last and first <= ports[1]:
+            return s
+    return None
 
 
 def down(name: str) -> int:
@@ -154,9 +173,20 @@ class Session:
 
     def up(self, timeout: float) -> int:
         """Build the bundle, start the session, wait for the agents in a running sim; on failure leave nothing."""
+        name = self.environment.name
+        # Docker cannot see the host ports PX4 sends to: two sessions there would mix their agents
+        first = self.environment.network.mavlink_port
+        last = first + len(self.environment.agents) - 1
+        try:
+            holder = using_mavlink(read_sessions(), name, first, last)
+        except DockerUnavailableError as e:
+            print(e)
+            return 1
+        if holder:
+            print(f"MAVLink ports {first}-{last} are used by session {holder.name}")
+            return 1
         bundle = build(self.environment)
         bundle.write(self.dir)
-        name = self.environment.name
         started = time.monotonic()
         print(f"starting {name} (images are built on first use; a PX4 build takes ~10 min)", flush=True)
         # compose itself, not DockerCompose.start(): that captures the output, and the build and the
@@ -178,10 +208,9 @@ class Session:
             time.sleep(3)
         agents = ", ".join(self.environment.agents)
         port = self.environment.network.router_port
-        mav, last = self.environment.network.mavlink_port, len(self.environment.agents) - 1
         print(
             f"{name} up in {time.monotonic() - started:.0f} s: {agents} in world {bundle.world_name!r}, "
-            f"router localhost:{port}, mavlink udp localhost:{mav}{f'-{mav + last}' if last else ''}",
+            f"router localhost:{port}, mavlink udpin :{first}{f'-{last}' if last > first else ''}",
             flush=True,
         )
         return 0

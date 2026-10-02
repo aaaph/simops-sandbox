@@ -70,23 +70,24 @@ it is not portable to other machines.
 
 ### Requirement: Containers carry their session
 Every service in the bundle's `compose.yaml` SHALL be labelled `simops.session` with the session
-name and `simops.router_port` with the environment's router port, so that a running session is
-found from its containers, however the bundle was started.
+name, `simops.router_port` with the environment's router port and `simops.mavlink_ports` with its
+MAVLink port range (`<first>-<last>`, `mavlink_port` to `mavlink_port + agents - 1`), so that a
+running session and the ports it uses are found from its containers, however the bundle was
+started.
 
 #### Scenario: Labels in compose
-- **WHEN** an environment `rover_room` with router port 7447 is built
-- **THEN** every service in `compose.yaml` has the labels `simops.session: rover_room` and `simops.router_port: "7447"`
+- **WHEN** an environment `rover_room` with router port 7447, MAVLink port 14540 and one agent is built
+- **THEN** every service in `compose.yaml` has the labels `simops.session: rover_room`, `simops.router_port: "7447"` and `simops.mavlink_ports: "14540-14540"`
 
-### Requirement: MAVLink ports published
-The bundle's compose file SHALL publish each agent's PX4 API (offboard) MAVLink link on the host:
-the agent at index `i` in environment order (its PX4 instance) on UDP port `mavlink_port + i`.
-Inside the session the link stays PX4's own (`14580 + i`); only the host port depends on the
-environment. PX4's GCS link SHALL keep sending to the host's port 14550, unpublished.
+### Requirement: MAVLink to the host
+The bundle's compose file SHALL make the PX4 of the agent at index `i` in environment order (its
+PX4 instance) send its API (offboard) MAVLink link to the host's UDP port `mavlink_port + i`, and
+SHALL publish no MAVLink port. PX4's GCS link SHALL keep sending to the host's port 14550.
 
 #### Scenario: One agent
 - **WHEN** an environment with agent `rover1` and `mavlink_port: 14590` is built
-- **THEN** `compose.yaml` publishes host UDP port 14590 to `rover1`'s PX4 API link (14580 in the session)
+- **THEN** `rover1`'s PX4 is set to send its API link to the host's port 14590, and `compose.yaml` publishes only the router port
 
 #### Scenario: Two agents
 - **WHEN** an environment with agents `rover1` and `rover2` and the default MAVLink port is built
-- **THEN** `compose.yaml` publishes host UDP 14580 to `rover1`'s PX4 (14580) and 14581 to `rover2`'s (14581)
+- **THEN** `rover1`'s PX4 sends to the host's port 14540 and `rover2`'s to 14541

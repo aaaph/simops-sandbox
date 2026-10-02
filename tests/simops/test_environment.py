@@ -18,7 +18,7 @@ def test_defaults():
     environment = Environment.parse(doc, base=ROOT, origin=Path("defaults.yaml"))
     assert environment.namespaces is False
     assert environment.network.router_port == 7447
-    assert environment.network.mavlink_port == 14580
+    assert environment.network.mavlink_port == 14540
 
 
 def test_mavlink_port(environment):

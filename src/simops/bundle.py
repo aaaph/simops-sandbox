@@ -71,6 +71,7 @@ def compose(
                 "PX4_GZ_MODEL_NAME": agent,
                 "PX4_SYS_AUTOSTART": str(spec.platform.px4.airframe),
                 "PX4_INSTANCE": str(i),
+                "PX4_MAVLINK_PORT": str(environment.network.mavlink_port + i),  # its API link, on the host
                 **({"PX4_ZENOH_NAMESPACE": agent} if environment.namespaces else {}),
             },
         }
@@ -81,10 +82,7 @@ def compose(
         "zenoh-router": {
             **ros,
             "restart": "always",
-            # each agent's PX4 API link (14580 + its instance in the shared namespace) on the host;
-            # a taken host port makes `up` fail, so no two sessions share an agent's MAVLink address
-            "ports": [f"{port}:7447/tcp", f"{port}:7447/udp"]
-            + [f"{environment.network.mavlink_port + i}:{14580 + i}/udp" for i in range(len(environment.agents))],
+            "ports": [f"{port}:7447/tcp", f"{port}:7447/udp"],
             # connects and sessions at debug, the rest at info: docker compose logs zenoh-router
             "environment": {
                 "RUST_LOG": "zenoh=info,zenoh_link_tcp::unicast=debug,"
@@ -121,7 +119,12 @@ def compose(
         },
     }
     # how a running session is found from its containers, however the bundle was started
-    labels = {"simops.session": name, "simops.router_port": str(port)}
+    mav = environment.network.mavlink_port
+    labels = {
+        "simops.session": name,
+        "simops.router_port": str(port),
+        "simops.mavlink_ports": f"{mav}-{mav + len(environment.agents) - 1}",
+    }
     return {"name": name, "services": {s: spec | {"labels": labels} for s, spec in services.items()}}
 
 

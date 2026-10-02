@@ -23,8 +23,8 @@ class Network(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     router_port: int = 7447
-    # host UDP port of the first agent's PX4 API link; agent i (its PX4 instance) gets mavlink_port + i
-    mavlink_port: int = 14580
+    # host UDP port the first agent's PX4 sends its API link to (stock SITL's); agent i gets + i
+    mavlink_port: int = 14540
 
 
 class Environment(BaseModel):

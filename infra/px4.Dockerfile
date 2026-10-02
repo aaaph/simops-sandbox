@@ -85,14 +85,16 @@ set -e
 export PATH=/opt/sim/bin:$PATH  # the bounded gz wrapper above
 B=/px4/build/px4_sitl_zenoh
 
-# Docker Desktop: localhost stays in the VM, so point MAVLink at the host's QGC.
-# Not the API link: `-t` fixes its partner for good, and host code reaches it through the
-# bundle's published port (mavlink_port), so PX4 must answer whoever writes to it first.
+# Docker Desktop: localhost stays in the VM, so point MAVLink at the host: the GCS link at QGC
+# (14550), the API link at PX4_MAVLINK_PORT, the bundle's mavlink_port + instance, where host
+# code listens (udpin) and answers back through Docker's NAT, as QGC does.
+RC="$B/etc/init.d-posix/px4-rc.mavlink"
 HOST_IP=$(getent ahostsv4 host.docker.internal | awk '/STREAM/ {print $1; exit}')
 if [ -n "$HOST_IP" ]; then
-	sed -i -E -e "/udp_offboard_port_local/ s/ -t [^ ]+//" \
-		-e "/udp_offboard_port_local/! s/(mavlink start -x)( -t [^ ]+)? -u/\1 -t $HOST_IP -u/" \
-		"$B/etc/init.d-posix/px4-rc.mavlink"
+	sed -i -E "s/(mavlink start -x)( -t [^ ]+)? -u/\1 -t $HOST_IP -u/" "$RC"
+fi
+if [ -n "$PX4_MAVLINK_PORT" ]; then
+	sed -i "s/^udp_offboard_port_remote=.*/udp_offboard_port_remote=$PX4_MAVLINK_PORT/" "$RC"
 fi
 
 export PX4_GZ_STANDALONE=1

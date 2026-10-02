@@ -10,7 +10,7 @@ namespaces: false
 
 network:
   router_port: 7447 # where ROS and the gz GUI on the host connect
-  mavlink_port: 14580 # UDP, rover1's PX4 API link on the host (udpout://localhost:14580); agent i: +i
+  mavlink_port: 14540 # UDP, where rover1's PX4 sends its API link (udpin://0.0.0.0:14540); agent i: +i
 
 world:
   # an open field: no walls, no obstacles, just the ground and the red start marker.
