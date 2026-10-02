@@ -1,7 +1,32 @@
-"""What host tools need to reach a session (spec: host-access), and where its bundle is (spec: bundle)."""
+"""Reaching a session from the host (host-access), its bundle (bundle), finding it (sim-lifecycle)."""
+
+from pathlib import Path
+
+import pytest
 
 from simops import ROOT
-from simops.session import Session
+from simops.session import (
+    DockerUnavailableError,
+    NotUpError,
+    RunningSession,
+    Session,
+    SeveralUpError,
+    find,
+    read_sessions,
+    sessions,
+)
+
+# `docker ps -a` with PS_FORMAT: two simops sessions (b's world exited), a compose project of
+# another tool, and a session from a bundle built before the labels
+PS = """\
+a\ta\t7447\tzenoh-router\t/b/a\trunning
+a\ta\t7447\tworld\t/b/a\trunning
+a\ta\t7447\tspawn\t/b/a\texited
+b\tb\t7448\tzenoh-router\t/b/b\trunning
+b\tb\t7448\tworld\t/b/b\texited
+other\t\t\tdb\t/elsewhere\trunning
+old\t\t\tworld\t/b/old\trunning
+"""
 
 
 def test_bundle_directory(environment, build_dir, monkeypatch):
@@ -19,3 +44,48 @@ def test_host_env(environment):
     moved = Session(environment("moved", network={"router_port": 7448})).host_env()
     for key in ("GZ_TRANSPORT_ZENOH_CONFIG_OVERRIDE", "ZENOH_CONFIG_OVERRIDE"):
         assert "tcp/localhost:7448" in moved[key]
+    assert env["GZ_SIM_RESOURCE_PATH"] == str(Session(environment("rover_room")).dir / "platforms")
+
+
+def test_containers_grouped_by_session():
+    found = sessions(PS)
+    assert set(found) == {"a", "b", "other", "old"}
+    assert found["a"] == RunningSession(
+        "a", 7447, Path("/b/a"), {"zenoh-router": "running", "world": "running", "spawn": "exited"}
+    )
+    assert found["b"].router_port == 7448
+    assert found["other"].router_port is None  # no simops labels
+
+
+def test_running_session_host_env():
+    env = sessions(PS)["b"].host_env()
+    assert env["GZ_PARTITION"] == "b"
+    assert "tcp/localhost:7448" in env["ZENOH_CONFIG_OVERRIDE"]
+    assert env["GZ_SIM_RESOURCE_PATH"] == "/b/b/platforms"
+
+
+def test_the_one_running_session():
+    found = sessions(PS)
+    assert find(found, None, "world").name == "a"  # b's world exited, other and old are no simops sessions
+    assert find(found, "b", None).name == "b"  # down: any container will do
+    assert find(found, "b", "zenoh-router").name == "b"
+
+
+def test_named_session_not_up():
+    with pytest.raises(NotUpError, match="b is not up"):
+        find(sessions(PS), "b", "world")
+    with pytest.raises(NotUpError, match="old is not up"):  # unlabelled: found by `down <name>` alone
+        find(sessions(PS), "old", None)
+    with pytest.raises(NotUpError, match="nothing is up"):
+        find({}, None, None)
+
+
+def test_several_sessions_up():
+    with pytest.raises(SeveralUpError, match="a, b"):
+        find(sessions(PS), None, "zenoh-router")
+
+
+@pytest.mark.parametrize("command", [["false"], ["/no/such/docker", "ps"]])
+def test_docker_not_answering_is_no_empty_list(command):
+    with pytest.raises(DockerUnavailableError):
+        read_sessions(command)

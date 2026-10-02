@@ -77,49 +77,49 @@ def compose(
         for i, (agent, spec) in enumerate(environment.agents.items())
     }
     ros = {"build": {"context": str(ROOT), "dockerfile": "infra/ros.Dockerfile"}, "image": "simops-sandbox-ros"}
-    return {
-        "name": name,
-        "services": {
-            "zenoh-router": {
-                **ros,
-                "restart": "always",
-                "ports": [f"{port}:7447/tcp", f"{port}:7447/udp"],
-                # connects and sessions at debug, the rest at info: docker compose logs zenoh-router
-                "environment": {
-                    "RUST_LOG": "zenoh=info,zenoh_link_tcp::unicast=debug,"
-                    "zenoh_transport::unicast::manager=debug,zenoh::net::routing::dispatcher::face=debug"
-                },
-                "command": "zenoh-router",
+    services = {
+        "zenoh-router": {
+            **ros,
+            "restart": "always",
+            "ports": [f"{port}:7447/tcp", f"{port}:7447/udp"],
+            # connects and sessions at debug, the rest at info: docker compose logs zenoh-router
+            "environment": {
+                "RUST_LOG": "zenoh=info,zenoh_link_tcp::unicast=debug,"
+                "zenoh_transport::unicast::manager=debug,zenoh::net::routing::dispatcher::face=debug"
             },
-            "world": {
-                **world_image,
-                **beside_router(),
-                "environment": {"SIM_WORLD": world_stem, **gz},
-                "volumes": ["./worlds:/sim/worlds:ro", "./platforms:/sim/platforms:ro"],
+            "command": "zenoh-router",
+        },
+        "world": {
+            **world_image,
+            **beside_router(),
+            "environment": {"SIM_WORLD": world_stem, **gz},
+            "volumes": ["./worlds:/sim/worlds:ro", "./platforms:/sim/platforms:ro"],
+        },
+        # adds the agents to the running world, exits; again whenever the world restarts
+        "spawn": {
+            **world_image,
+            **beside_router("world"),
+            "environment": gz,
+            "volumes": ["./platforms:/sim/platforms:ro", "./spawn.sh:/sim/spawn.sh:ro"],
+            "command": ["sh", "/sim/spawn.sh"],
+        },
+        **autopilots,
+        # the sim's stand-in for the agents' sensor drivers: their bridge.yaml, merged
+        "sim-sensors": {
+            **ros,
+            **beside_router("world"),
+            "environment": {
+                **gz,
+                "BRIDGE_CONFIG": "/sim/bridge.yaml",
+                "ZENOH_CONFIG_OVERRIDE": 'mode="client";connect/endpoints=["tcp/localhost:7447"]',
             },
-            # adds the agents to the running world, exits; again whenever the world restarts
-            "spawn": {
-                **world_image,
-                **beside_router("world"),
-                "environment": gz,
-                "volumes": ["./platforms:/sim/platforms:ro", "./spawn.sh:/sim/spawn.sh:ro"],
-                "command": ["sh", "/sim/spawn.sh"],
-            },
-            **autopilots,
-            # the sim's stand-in for the agents' sensor drivers: their bridge.yaml, merged
-            "sim-sensors": {
-                **ros,
-                **beside_router("world"),
-                "environment": {
-                    **gz,
-                    "BRIDGE_CONFIG": "/sim/bridge.yaml",
-                    "ZENOH_CONFIG_OVERRIDE": 'mode="client";connect/endpoints=["tcp/localhost:7447"]',
-                },
-                "volumes": ["./bridge.yaml:/sim/bridge.yaml:ro"],
-                "command": "sim-sensors",
-            },
+            "volumes": ["./bridge.yaml:/sim/bridge.yaml:ro"],
+            "command": "sim-sensors",
         },
     }
+    # how a running session is found from its containers, however the bundle was started
+    labels = {"simops.session": name, "simops.router_port": str(port)}
+    return {"name": name, "services": {s: spec | {"labels": labels} for s, spec in services.items()}}
 
 
 def namespaced(agent: str, topic: str) -> str:
@@ -216,7 +216,7 @@ class Bundle(BaseModel):
         else:
             sdf.write_text(self.world.sdf())
         if self.world_summary is not None:
-            print(f"{sdf}: {self.world_summary}", flush=True)
+            print(f"world: {self.world_summary}", flush=True)
         for line in self.firmware_lines:
             print(line, flush=True)
         (out / "spawn.sh").write_text(self.spawn)
@@ -260,7 +260,7 @@ def build(environment: Environment) -> Bundle:
         px4 = agent.platform.px4.firmware
         if px4 not in firmware:
             ref, commit = firmware[px4] = px4.resolve()
-            firmware_lines.append(f"PX4 {commit}" if ref == commit else f"PX4 {ref} = {commit}")
+            firmware_lines.append(f"PX4 {commit[:12]}" if ref == commit else f"PX4 {ref} ({commit[:12]})")
     return Bundle(
         environment=environment,
         world_name=world_name,

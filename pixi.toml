@@ -11,8 +11,6 @@ version = "0.1.0"
 
 [activation.env]
 RMW_IMPLEMENTATION = "rmw_zenoh_cpp"
-# the native GUI loads the agents' meshes (model://<platform>/...) from here
-GZ_SIM_RESOURCE_PATH = "$PIXI_PROJECT_ROOT/platforms"
 
 [tasks]
 lint = "ruff check --fix --show-fixes && ty check"

@@ -29,8 +29,8 @@ context: |
     `empty_world` (EmptySpec: no fields, an open field with no walls and no obstacles).
   - bundle: an environment built for docker compose: built in memory (Bundle, by `build`), then
     written to build/<name>/ (`Bundle.write`). Spec: bundle.
-  - session: a running bundle, from `up` to `down`; one compose project, one gz partition.
-    Spec: sim-lifecycle.
+  - session: a running bundle, from `up` to `down`; one compose project, one gz partition; found
+    from its containers, by the labels of its bundle. Spec: sim-lifecycle.
   - scenario: reserved for what happens in a session (task, world events, success criteria);
     never the environment. OpenSpec's "#### Scenario:" blocks are the tool's own word.
   - sim-only: channels no real robot has, /sim/* and /clock (target: /ground_truth moves under

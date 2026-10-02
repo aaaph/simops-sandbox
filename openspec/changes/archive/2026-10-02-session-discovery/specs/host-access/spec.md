@@ -1,19 +1,6 @@
-# host-access Specification
+# Spec Delta
 
-## Purpose
-
-How code and tools on the host reach a running session: one router port carries both ROS 2 and
-gz, and host code has to speak the same transport and message versions as the session.
-
-## Requirements
-
-### Requirement: One port per environment
-A session SHALL be reachable from the host through one router port, `network.router_port`,
-on TCP and UDP, carrying both ROS 2 and gz traffic.
-
-#### Scenario: Port published
-- **WHEN** `rover_room` is up with router port 7447
-- **THEN** the host reaches its ROS 2 topics and gz topics through `localhost:7447`
+## MODIFIED Requirements
 
 ### Requirement: Host environment
 `simops host-env [environment]` SHALL print shell exports that make gz and ROS 2 on the host join
@@ -53,13 +40,3 @@ which session is not up and how to start it, and exit non-zero at once.
 #### Scenario: Session not up
 - **WHEN** `rover_room` is not up and `simops gui environments/rover_room.yaml` runs
 - **THEN** it says `rover_room` is not up, names `simops up environments/rover_room.yaml` and exits non-zero without waiting
-
-### Requirement: What host code must use
-Host ROS 2 code SHALL use rmw_zenoh to see the session's topics. Code that talks to an agent's
-PX4 SHALL use `px4_msgs` generated from the firmware of that agent's platform (`version` or
-`commit` in its `agent.yaml`): message type hashes are part of the topic keys, so any other
-version sees no `/fmu/*` topics, without an error.
-
-#### Scenario: Mismatched px4_msgs
-- **WHEN** host code built with `px4_msgs` from another PX4 commit subscribes to `/fmu/out/...`
-- **THEN** it receives nothing, and no error is reported

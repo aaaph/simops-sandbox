@@ -134,3 +134,10 @@ def test_two_platforms_two_firmwares(environment, platform):
     assert services["px4-rover1"]["image"] == f"simops-sandbox-px4:{RC1[:12]}"
     assert services["px4-rover2"]["image"] == f"simops-sandbox-px4:{COMMIT[:12]}"
     assert services["px4-rover2"]["environment"]["PX4_SYS_AUTOSTART"] == "4001"
+
+
+@pytest.mark.parametrize("port", [7447, 7448])
+def test_containers_carry_their_session(environment, port):
+    services = build(environment("labelled", network={"router_port": port})).compose["services"]
+    for spec in services.values():
+        assert spec["labels"] == {"simops.session": "labelled", "simops.router_port": str(port)}

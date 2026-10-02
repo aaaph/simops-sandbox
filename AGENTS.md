@@ -21,10 +21,17 @@ it, the platforms it uses; `$SIMOPS_BUILD_DIR/<name>/` when that is set) and run
 session, with `GZ_PARTITION=<name>`.
 
     pixi run simops up environments/rover_room.yaml     # returns once every agent is in the world and sim time moves
-    pixi run simops gui environments/rover_room.yaml    # native gz GUI, right partition and router
-    pixi run simops host-env environments/rover_room.yaml | source   # gz/ROS on the host (bash: eval "$(...)")
+    pixi run simops gui                                 # native gz GUI of the running session, meshes from its bundle
+    pixi run simops host-env | source                   # gz/ROS on the host (bash: eval "$(...)")
     pixi run simops run environments/rover_room.yaml -- pytest tests/   # up, command, down whatever happens
-    pixi run simops down environments/rover_room.yaml
+    pixi run simops down
+
+`gui`, `host-env` and `down` act on the one running session; with several up, name one —
+`simops gui rover_room` (the session name) or the environment file. Sessions are found from Docker
+by the `simops.session` label that the bundle's `compose.yaml` puts on every container, so a bundle
+started with plain `docker compose` counts too, and no session file exists to go stale. A session
+from a bundle built before the labels is invisible to `gui`/`host-env` (`down <name>` still works):
+`up` it once again. `host-env <environment file>` works with nothing running.
 
 `simops` and `worldgen` are commands installed (editable) into the pixi env: `pixi run simops …`
 from any directory of the project, or plain `simops …` inside `pixi shell`; relative paths are

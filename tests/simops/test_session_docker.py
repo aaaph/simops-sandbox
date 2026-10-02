@@ -13,8 +13,10 @@ from pathlib import Path
 
 import pytest
 import yaml
+from typer.testing import CliRunner
 
 from simops.bundle import build
+from simops.cli import app
 from simops.environment import Environment
 from simops.session import Session
 from worldgen import room
@@ -171,3 +173,39 @@ def test_environments_isolated(tmp_path, cleanup):
     assert not any(t.startswith("/beta/") for t in seen_a)
     assert "/beta/scan" in seen_b
     assert not any(t.startswith("/alpha/") for t in seen_b)
+
+
+def test_running_session_found_without_its_file(tmp_path, cleanup):
+    sim = environment(tmp_path, "t_found", 7469, ["rover1"])
+    cleanup.append(sim)
+    assert sim.up(TIMEOUT) == 0
+    named = CliRunner().invoke(app, ["host-env", "t_found"])
+    assert named.exit_code == 0, named.output
+    assert "export GZ_PARTITION='t_found'" in named.output
+    assert "tcp/localhost:7469" in named.output
+    assert f"export GZ_SIM_RESOURCE_PATH='{sim.dir / 'platforms'}'" in named.output
+    # without an argument: this session, unless someone else keeps one up too
+    alone = CliRunner().invoke(app, ["host-env"])
+    if alone.exit_code == 0:
+        assert alone.output == named.output
+    else:
+        assert "several sessions are up" in alone.output
+        assert "t_found" in alone.output
+    down = CliRunner().invoke(app, ["down"] if alone.exit_code == 0 else ["down", "t_found"])
+    assert down.exit_code == 0, down.output
+    assert containers(sim) == []
+
+
+def test_plain_compose_session_found(tmp_path, cleanup):
+    sim = environment(tmp_path, "t_plain", 7470, ["rover1"])
+    cleanup.append(sim)
+    build(sim.environment).write(sim.dir)
+    plain = ["docker", "compose", "-f", str(sim.dir / "compose.yaml"), "up", "-d", "--wait"]
+    assert subprocess.run(plain, check=False).returncode == 0
+    found = CliRunner().invoke(app, ["host-env", "t_plain"])
+    assert found.exit_code == 0, found.output
+    assert "tcp/localhost:7470" in found.output
+    assert f"export GZ_SIM_RESOURCE_PATH='{sim.dir / 'platforms'}'" in found.output  # compose's working_dir
+    shutil.rmtree(sim.dir)  # down needs no bundle
+    assert CliRunner().invoke(app, ["down", "t_plain"]).exit_code == 0
+    assert containers(sim) == []

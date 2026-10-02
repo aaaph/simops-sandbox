@@ -4,6 +4,8 @@ import os
 import re
 import subprocess
 import time
+from dataclasses import dataclass
+from pathlib import Path
 from subprocess import CalledProcessError
 from typing import TYPE_CHECKING
 
@@ -14,6 +16,91 @@ from simops.bundle import Bundle, build, zenoh_gz
 
 if TYPE_CHECKING:
     from simops.environment import Environment
+
+# one container per line, tab-separated: its compose project, the simops labels of its bundle,
+# its service, its bundle directory and its state; a label it lacks prints as an empty field
+LABELS = ("com.docker.compose.project", "simops.session", "simops.router_port", "com.docker.compose.service")
+PS_FORMAT = (
+    "\t".join(
+        [*(f'{{{{.Label "{label}"}}}}' for label in LABELS), '{{.Label "com.docker.compose.project.working_dir"}}']
+    )
+    + "\t{{.State}}"
+)
+DOCKER_PS = ["docker", "ps", "-a", "--filter", "label=com.docker.compose.project", "--format", PS_FORMAT]
+
+
+class DockerUnavailableError(Exception):
+    """Docker did not answer: never taken for no session running."""
+
+
+class NotUpError(Exception):
+    """No session to act on."""
+
+
+class SeveralUpError(Exception):
+    """Several sessions running and none named."""
+
+
+def host_env(name: str, port: int, bundle: Path) -> dict[str, str]:
+    """Say what gz and ROS on the host need to reach a session through its router, and where its meshes are."""
+    return {
+        "GZ_PARTITION": name,
+        "GZ_TRANSPORT_IMPLEMENTATION": "zenoh",
+        "GZ_TRANSPORT_ZENOH_CONFIG_OVERRIDE": zenoh_gz(port),
+        "ZENOH_CONFIG_OVERRIDE": f'mode="client";connect/endpoints=["tcp/localhost:{port}"]',
+        # the GUI loads the agents' meshes (model://<platform>/...) from the bundle
+        "GZ_SIM_RESOURCE_PATH": str(bundle / "platforms"),
+    }
+
+
+@dataclass(frozen=True)
+class RunningSession:
+    """A session found from its containers alone: no environment file, no bundle needed to find it."""
+
+    name: str  # the compose project, the gz partition
+    router_port: int | None  # None: a compose project whose bundle has no simops labels
+    bundle: Path  # where compose ran from: build/<name>/
+    services: dict[str, str]  # service -> container state
+
+    def host_env(self) -> dict[str, str]:
+        """Say what gz and ROS on the host need to reach this session."""
+        return host_env(self.name, self.router_port or 7447, self.bundle)
+
+
+def sessions(ps: str) -> dict[str, RunningSession]:
+    """Group the containers `DOCKER_PS` lists by compose project."""
+    found: dict[str, RunningSession] = {}
+    for line in filter(None, ps.splitlines()):
+        project, session, port, service, bundle, state = line.split("\t")
+        labelled = int(port) if session and port else None
+        found.setdefault(project, RunningSession(project, labelled, Path(bundle), {})).services[service] = state
+    return found
+
+
+def read_sessions(command: list[str] = DOCKER_PS) -> dict[str, RunningSession]:
+    """List every compose project's containers; Docker not answering is an error, not an empty list."""
+    try:
+        out = subprocess.run(command, capture_output=True, text=True, check=True).stdout
+    except OSError, CalledProcessError:
+        raise DockerUnavailableError("Docker does not answer: is it running?") from None
+    return sessions(out)
+
+
+def find(found: dict[str, RunningSession], name: str | None, service: str | None) -> RunningSession:
+    """Pick the named session, or the only one; `service` must be running in it (None: any container will do)."""
+    labelled = [s for s in found.values() if s.router_port is not None and name in (None, s.name)]
+    if service is not None:
+        labelled = [s for s in labelled if s.services.get(service) == "running"]
+    if not labelled:
+        raise NotUpError(f"{name} is not up" if name else "nothing is up")
+    if len(labelled) > 1:
+        raise SeveralUpError(f"several sessions are up, name one: {', '.join(sorted(s.name for s in labelled))}")
+    return labelled[0]
+
+
+def down(name: str) -> int:
+    """Stop and remove every container of the session, exited ones and orphans too, by compose project."""
+    return subprocess.run(["docker", "compose", "-p", name, "down", "--remove-orphans"], check=False).returncode
 
 
 class Session:
@@ -29,14 +116,8 @@ class Session:
         return DockerCompose(self.dir, compose_file_name=str(self.dir / "compose.yaml"), wait=True)
 
     def host_env(self) -> dict[str, str]:
-        """Say what gz and ROS on the host need to reach this session through its router."""
-        port = self.environment.network.router_port
-        return {
-            "GZ_PARTITION": self.environment.name,
-            "GZ_TRANSPORT_IMPLEMENTATION": "zenoh",
-            "GZ_TRANSPORT_ZENOH_CONFIG_OVERRIDE": zenoh_gz(port),
-            "ZENOH_CONFIG_OVERRIDE": f'mode="client";connect/endpoints=["tcp/localhost:{port}"]',
-        }
+        """Say what gz and ROS on the host need to reach this session, from the environment alone."""
+        return host_env(self.environment.name, self.environment.network.router_port, self.dir)
 
     def log_tail(self, lines: int = 15) -> None:
         """Print the last lines each service logged."""
@@ -76,14 +157,17 @@ class Session:
         bundle = build(self.environment)
         bundle.write(self.dir)
         name = self.environment.name
+        started = time.monotonic()
         print(f"starting {name} (images are built on first use; a PX4 build takes ~10 min)", flush=True)
-        try:
-            self.project().start()  # up --wait: every service runs, `spawn` exited 0
-        except CalledProcessError as e:
-            print(e.stderr.decode(errors="ignore").strip(), "\nlast log lines:")
+        # compose itself, not DockerCompose.start(): that captures the output, and the build and the
+        # containers coming up are what to watch here. --wait: every service runs, `spawn` exited 0
+        up = [*self.project().docker_compose_command(), "up", "--wait"]
+        if subprocess.run(up, check=False).returncode:
+            print("last log lines:")
             self.log_tail()
             self.down()
             return 1
+        print(f"waiting for {', '.join(self.environment.agents)} in the world and sim time moving", flush=True)
         deadline = time.monotonic() + timeout
         while not self.ready(bundle):
             if time.monotonic() > deadline:
@@ -92,14 +176,18 @@ class Session:
                 self.down()
                 return 1
             time.sleep(3)
-        print(f"{name} up. GUI: `simops gui <environment>`, stop: `simops down <environment>`", flush=True)
+        agents = ", ".join(self.environment.agents)
+        port = self.environment.network.router_port
+        print(
+            f"{name} up in {time.monotonic() - started:.0f} s: {agents} in world {bundle.world_name!r}, "
+            f"router localhost:{port}",
+            flush=True,
+        )
         return 0
 
     def down(self) -> int:
         """Stop and remove the session's containers."""
-        # DockerCompose.stop() leaves orphans: services dropped from a rebuilt bundle must go too
-        command = [*self.project().docker_compose_command(), "down", "--remove-orphans"]
-        return subprocess.run(command, check=False).returncode
+        return down(self.environment.name)
 
     def run(self, timeout: float, command: list[str]) -> int:
         """Up, run the command against the session, down whatever happens."""
