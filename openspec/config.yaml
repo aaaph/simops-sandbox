@@ -39,8 +39,8 @@ context: |
   - scenario: reserved for what happens in a session (task, world events, success criteria);
     never the environment. A scenario test runs one (pytest marker `scenario`). OpenSpec's
     "#### Scenario:" blocks are the tool's own word.
-  - sim-only: channels no real robot has, /sim/* and /clock (target: /ground_truth moves under
-    /sim/ with the change sim-oracle-namespace).
+  - sim-only: channels no real robot has, /sim/* and /clock -- the world's, bridged whatever the
+    agents (target: /ground_truth moves under /sim/ with the change sim-oracle-namespace).
   - ground truth: the simulator's true state (pose, map, start pose), for evaluation only.
   - sim control: what only the simulator can do (sessions, world events, time).
   - PX4 firmware: `version` (a release tag), `commit` (a full SHA) or the default, named in a

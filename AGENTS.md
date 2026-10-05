@@ -109,9 +109,9 @@ How it is done, beyond the specs:
 
 Services: `zenoh-router` (ROS 2 and gz-transport both go through it), `world` (gz Jetty server),
 `px4-<agent>` (PX4 SITL of its platform's firmware, instance `-i N` so the PX4s sharing one network
-namespace get their own MAVLink ports), `spawn` (above) and `sim-sensors` (`ros_gz_bridge` with the agents'
-bridge entries merged: `/clock`, `/scan`, `/scan/points`, `/ground_truth` — the sim's stand-in for
-the sensor drivers). IMU, odometry and the
+namespace get their own MAVLink ports), `spawn` (above) and `sim-sensors` (`ros_gz_bridge` with the world's
+`/clock` first, then the agents' bridge entries merged: `/scan`, `/scan/points`, `/ground_truth` —
+the sim's stand-in for the sensor drivers; a platform never lists `/clock`, loading refuses it). IMU, odometry and the
 wheels are PX4's `/fmu/*`. Images: `simops-sandbox-{ros,world}` and `simops-sandbox-px4:<commit[:12]>`,
 built by compose on first use; after a Dockerfile change, `docker compose -f
 build/<name>/compose.yaml build`. All of them are built on the same conda-forge gz Jetty as the

@@ -31,6 +31,14 @@ class PlatformDocument(BaseModel):
     bridge: list[dict]
     autopilot: Autopilot
 
+    @field_validator("bridge")
+    @classmethod
+    def _no_clock(cls, entries: list[dict]) -> list[dict]:
+        if any("/clock" in (e.get("gz_topic_name"), e.get("ros_topic_name")) for e in entries):
+            msg = "`/clock` is the world's -- the world bridges it; drop it from the platform's bridge"
+            raise ValueError(msg)
+        return entries
+
     @field_validator("model")
     @classmethod
     def _model_exists(cls, path: Path) -> Path:

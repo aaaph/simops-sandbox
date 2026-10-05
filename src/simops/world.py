@@ -30,6 +30,16 @@ class EmptySpec(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
+# the session's one clock: gz publishes it from the world, whatever the agents (spec: agent-interface)
+CLOCK = {
+    "ros_topic_name": "/clock",
+    "gz_topic_name": "/clock",
+    "ros_type_name": "rosgraph_msgs/msg/Clock",
+    "gz_type_name": "gz.msgs.Clock",
+    "direction": "GZ_TO_ROS",
+}
+
+
 class World(BaseModel):
     """The environment's `world:` -- exactly one world source."""
 
@@ -68,6 +78,11 @@ class World(BaseModel):
             msg = "give exactly one world source: `generate_room`, `file` or `empty_world`"
             raise ValueError(msg)
         return self
+
+    @property
+    def bridge(self) -> list[dict]:
+        """The world's own bridge entries, the same for every world source: its clock."""
+        return [dict(CLOCK)]
 
     @property
     def source(self) -> RoomSpec | WorldFile | EmptySpec:

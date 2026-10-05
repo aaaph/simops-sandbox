@@ -114,6 +114,12 @@ def test_bridge_replaced():
     assert over_rover(bridge=[SCAN]).bridge == [SCAN]
 
 
+@pytest.mark.parametrize("side", ["gz_topic_name", "ros_topic_name"])
+def test_clock_is_the_worlds(side):
+    with pytest.raises(ValueError, match=r"bridge: `/clock` is the world's"):
+        over_rover(bridge=[SCAN | {side: "/clock"}])
+
+
 def test_key_removed():
     with pytest.raises(
         ValueError, match=r"base .*rover_differential_lidar_px4/platform\.yaml: bridge: Field required"

@@ -84,6 +84,11 @@ def test_partial_pose(environment):
         ({"network": {"port": 7448}}, r"`network\.port` is not a key"),
         # the firmware lives in the platform, in its platform.yaml or inline
         ({"autopilot": {"px4": {"version": "v1.18.0-rc1"}}}, r"`autopilot\.px4` of its platform\.yaml"),
+        # /clock is the world's: a platform listing it is refused, naming where it is written
+        (
+            {"agents": {"rover1": {"platform": {"base": ROVER_DIR, "bridge": [{"gz_topic_name": "/clock"}]}}}},
+            r"^rejected\.yaml: agents\.rover1\.platform: .*bridge: `/clock` is the world's",
+        ),
         # an inline platform is checked like any other, and the message names the agent
         (
             {"agents": {"rover1": {"platform": {"model": "x.sdf", "brige": [], "autopilot": AUTOPILOT}}}},

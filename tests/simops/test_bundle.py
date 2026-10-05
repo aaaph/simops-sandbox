@@ -7,6 +7,7 @@ import pytest
 
 from simops.bundle import build
 from simops.environment import Environment
+from simops.world import CLOCK
 from worldgen.world import SdfWorld, StartMarker
 
 pytestmark = pytest.mark.usefixtures("no_network")
@@ -72,6 +73,17 @@ def test_two_agents_namespaced(environment):
     assert ros.count("/clock") == 1
     # each agent's entries are rewritten in its own copy, the platform's stay as they are
     assert "/scan" in {e["ros_topic_name"] for e in bundle.environment.agents["rover2"].platform.bridge}
+
+
+def test_clock_first(environment):
+    bridge = build(environment("clocked")).bridge
+    assert bridge[0] == CLOCK  # the world's
+    assert [e["ros_topic_name"] for e in bridge[1:]] == ["/scan", "/scan/points", "/ground_truth"]
+
+
+def test_clock_without_agent_topics(environment):
+    silent = {"rover1": {"platform": {"base": ROVER_DIR, "bridge": []}}}
+    assert build(environment("silent", agents=silent)).bridge == [CLOCK]
 
 
 @pytest.mark.parametrize("form", ["inline", "base"])

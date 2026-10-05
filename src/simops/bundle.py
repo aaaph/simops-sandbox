@@ -105,7 +105,7 @@ def compose(
             "command": ["sh", "/sim/spawn.sh"],
         },
         **autopilots,
-        # the sim's stand-in for the agents' sensor drivers: their bridge.yaml, merged
+        # the sim's stand-in for the agents' sensor drivers: the world's clock and their entries, merged
         "sim-sensors": {
             **ros,
             **beside_router("world"),
@@ -184,9 +184,8 @@ def agents(environment: Environment) -> tuple[list[str], list[dict], dict[str, P
                 model.getroot(), encoding="us-ascii", xml_declaration=True
             ).decode()
             for e in entries:
-                if e["gz_topic_name"] != "/clock":  # one clock for the whole world
-                    e["gz_topic_name"] = namespaced(agent, e["gz_topic_name"])
-                    e["ros_topic_name"] = namespaced(agent, e["ros_topic_name"])
+                e["gz_topic_name"] = namespaced(agent, e["gz_topic_name"])
+                e["ros_topic_name"] = namespaced(agent, e["ros_topic_name"])
         bridge += [e for e in entries if e not in bridge]
         request = entity_factory(agent, f"/sim/platforms/{platform}/{sdf}", spec.pose)
         spawns.append(f"spawn {agent} '{request}'")
@@ -284,7 +283,7 @@ def build(environment: Environment) -> Bundle:
         world_summary=summary,
         compose=compose(environment, Path(world_file).stem, world_name, firmware),
         spawn=SPAWN.format(world=world_name, agents="\n".join(spawns)),
-        bridge=bridge,
+        bridge=environment.world.bridge + bridge,  # the world's clock first, then the agents' entries
         platforms=by_name | copies,
         models=models,
         firmware_lines=firmware_lines,
