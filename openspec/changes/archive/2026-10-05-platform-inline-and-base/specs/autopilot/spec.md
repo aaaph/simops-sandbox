@@ -1,11 +1,4 @@
-# autopilot Specification
-
-## Purpose
-
-Each agent's PX4 SITL as a dependency: the airframe and the firmware it runs on come from the
-agent's platform, and every agent gets its own instance.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: One PX4 per agent
 Every agent SHALL get its own PX4 SITL, attached to that agent in the world by its environment
@@ -76,54 +69,3 @@ needs no rebuild. Unknown keys under `autopilot` SHALL fail loading, naming the 
 #### Scenario: Firmware overridden over a base
 - **WHEN** `rover1` names `rover_differential_lidar_px4` and `rover2` has an inline platform with that `base` and `autopilot: {px4: {version: v1.18.0}}`
 - **THEN** `px4-rover1` runs `v1.18.0-rc1` and `px4-rover2` runs `v1.18.0`, both with airframe 50000
-
-### Requirement: Distinct instances
-Agents SHALL get distinct PX4 instance numbers `0..N-1` in environment order, so PX4s sharing one
-network namespace do not collide on their ports.
-
-#### Scenario: Second agent
-- **WHEN** an environment has agents `rover1` and `rover2`
-- **THEN** `px4-rover1` runs as instance 0 and `px4-rover2` as instance 1
-
-### Requirement: Default firmware
-With neither `version` nor `commit`, simops SHALL use the newest release tag of PX4 1.18 or later
-without a pre-release suffix, or, when none exists, the newest 1.18+ pre-release tag.
-
-#### Scenario: No stable 1.18 yet
-- **WHEN** the repository's newest 1.18+ tags are `v1.18.0-beta2` and `v1.18.0-rc1`, and no `v1.18.0`
-- **THEN** the default firmware is `v1.18.0-rc1`
-
-#### Scenario: Stable released
-- **WHEN** the repository has `v1.18.0` and `v1.18.1-rc1`
-- **THEN** the default firmware is `v1.18.0`
-
-### Requirement: Supported PX4 versions
-simops SHALL support PX4 1.18 and later, compared by major.minor: 1.18 pre-releases and commits
-after them are supported. PX4 1.17 and earlier compile as C++14, which the gz Jetty toolchain
-of this stack cannot build. A `version` below 1.18 SHALL fail loading before any image is built;
-a `commit` whose `git describe` version is below 1.18 SHALL fail the image build before PX4 is
-compiled. Both messages SHALL name the version found and the 1.18 minimum.
-
-#### Scenario: Old version
-- **WHEN** the platform sets `version: v1.17.0`
-- **THEN** loading fails naming 1.17.0 and the 1.18 minimum, and no image build starts
-
-#### Scenario: Pre-release of 1.18
-- **WHEN** the platform sets `version: v1.18.0-rc1`
-- **THEN** it is accepted
-
-#### Scenario: Old commit
-- **WHEN** the platform sets a `commit` that `git describe` places before 1.18
-- **THEN** the PX4 image build stops before compiling, naming that version and the 1.18 minimum
-
-### Requirement: PX4 knows its version
-The PX4 in the image SHALL report the version it was built from: the tag for a `version`, the
-`git describe` of the commit for a `commit` — never `v0.0.0`.
-
-#### Scenario: Built from a tag
-- **WHEN** PX4 is built for `version: v1.18.0-rc1`
-- **THEN** its build reports the tag `v1.18.0-rc1`
-
-#### Scenario: Built from a commit
-- **WHEN** PX4 is built for a `commit` after `v1.18.0-beta1`
-- **THEN** its build reports a version starting with `v1.18.0-beta1-`

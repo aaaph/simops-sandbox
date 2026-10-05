@@ -45,7 +45,10 @@ class Environment(BaseModel):
             msg = "`robots:` is now `agents:`"
             raise ValueError(msg)
         if isinstance(data, dict) and "autopilot" in data:
-            msg = "`autopilot` is set in each platform's agent.yaml now (`autopilot.px4`), not in the environment"
+            msg = (
+                "`autopilot` is set in each platform now (`autopilot.px4` of its platform.yaml, or of the "
+                "platform inline), not in the environment"
+            )
             raise ValueError(msg)
         return data
 

@@ -1,4 +1,4 @@
-"""Shared test fixtures, and the guard that keeps tests out of environments/ and build/."""
+"""Shared test fixtures, and the guard that keeps tests out of environments/, platforms/ and build/."""
 
 import os
 import sys
@@ -11,13 +11,16 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
 ROOT = Path(__file__).resolve().parents[1]
-EXAMPLES, BUILD = ROOT / "environments", ROOT / "build"
+EXAMPLES, BUILD = (ROOT / "environments", ROOT / "platforms"), ROOT / "build"  # examples: the repository's own
 # audit events that change the filesystem at their path arguments (`open` is looked at on its own)
 WRITES = frozenset(
     {"os.mkdir", "os.remove", "os.rename", "os.rmdir", "os.symlink", "shutil.rmtree", "shutil.copytree"}
 )
 FOUND: list[str] = []  # what tests did that they must not, see `guard`
-USE_OWN = "tests use their own environments (tests/simops/environments/, the `environment` fixture)"
+USE_OWN = (
+    "tests use their own environments and platforms (tests/simops/environments/, tests/simops/platforms/, "
+    "the `environment` fixture)"
+)
 USE_TMP = "tests write to pytest's temporary directories (`tmp_path`, `build_dir`), not to build/"
 
 
@@ -30,14 +33,16 @@ def under(path: Any, root: Path) -> bool:  # noqa: ANN401 -- whatever an audit e
 
 
 def audit(event: str, args: tuple) -> None:
-    """Record a read of the examples in environments/ or a write to build/ (a sys audit hook)."""
+    """Record a read of the examples in environments/ or platforms/, or a write to build/ (a sys audit hook)."""
     if event == "open" and args:
         path, mode, flags = (*args, None, None)[:3]
         if isinstance(mode, str):
             writes = any(c in mode for c in "wax+")
+        elif isinstance(path, (str, os.PathLike)) and not os.path.isabs(path):  # noqa: PTH117 -- no Path for an audit arg
+            return  # os.open of a name inside a directory fd (shutil.rmtree, copytree): its directory is unknown
         else:  # os.open: flags only
             writes = bool((flags or 0) & (os.O_WRONLY | os.O_RDWR | os.O_CREAT))
-        if under(path, EXAMPLES):
+        if any(under(path, examples) for examples in EXAMPLES):
             FOUND.append(f"reads {path}: {USE_OWN}, not the examples")
         elif writes and under(path, BUILD):
             FOUND.append(f"writes {path}: {USE_TMP}")
@@ -56,7 +61,7 @@ def pytest_collection_finish(session: pytest.Session) -> None:  # noqa: ARG001 -
 
 @pytest.fixture(autouse=True)
 def guard() -> Iterator[list[str]]:
-    """Fail a test that read the examples in environments/ or wrote to build/, saying what to use instead."""
+    """Fail a test that read the examples (environments/, platforms/) or wrote to build/, saying what instead."""
     FOUND.clear()
     yield FOUND
     if FOUND:

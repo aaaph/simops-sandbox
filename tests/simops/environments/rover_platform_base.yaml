@@ -1,0 +1,12 @@
+# Three forms, one bundle (spec: platform): rover1's platform as its base alone, nothing laid
+# over it -- the same platform as rover_platform_dir.yaml. Paths are relative to this file.
+name: rover_platform
+
+world:
+  empty_world:
+
+agents:
+  rover1:
+    platform:
+      base: ../platforms/rover_differential_lidar_px4
+    pose: [0, 0, 0.2]

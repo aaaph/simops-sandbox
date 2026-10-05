@@ -1,5 +1,5 @@
 # An environment: which world and which agents in it -- no action. Each agent's autopilot
-# (airframe and PX4 firmware) comes from its platform's agent.yaml.
+# (airframe and PX4 firmware) comes from its platform (`autopilot.px4`).
 # `pixi run simops build` turns it into a bundle in build/<name>/ (compose.yaml + the world
 # and platforms it uses), `up` runs the bundle as a session. Paths are relative to this file.
 name: rover_empty_world
@@ -20,5 +20,5 @@ world:
 
 agents:
   rover1: # the model's name in gz
-    platform: ../platforms/rover_differential_lidar_px4 # model.sdf, bridge.yaml, agent.yaml
+    platform: ../platforms/rover_differential_lidar_px4 # its platform.yaml; or the platform inline
     pose: [0, 0, 0.2]

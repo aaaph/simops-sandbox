@@ -12,7 +12,7 @@ from simops.platform import Platform
 ROOT = Path(__file__).resolve().parents[2]
 # the tests' own environment files; the examples in environments/ are not used by tests
 ENVIRONMENTS = Path(__file__).resolve().parent / "environments"
-PX4_PLATFORM = ROOT / "platforms/rover_differential_lidar_px4"
+PX4_PLATFORM = Path(__file__).resolve().parent / "platforms/rover_differential_lidar_px4"  # the tests' own copy
 # what `git ls-remote --tags` says, trimmed: v1.18.0-rc1 points to fca3df865af3
 LS_REMOTE = """\
 a5eb12d2ab591251faa009f76b2685b8cc64405d\trefs/tags/v1.17.0
@@ -67,10 +67,11 @@ def environment():  # noqa: ANN201 -- returns the maker below
 
 @pytest.fixture
 def platform():  # noqa: ANN201 -- returns the maker below
-    """Give the PX4 platform with its `autopilot.px4` replaced, in memory; agent.yaml's checks run."""
+    """Give the PX4 platform's model with this `autopilot.px4`, in memory; errors name its platform.yaml."""
 
     def make(**px4: object) -> Platform:
-        return Platform.parse(PX4_PLATFORM, {"autopilot": {"px4": px4}})
+        document = {"model": "model.sdf", "bridge": [], "autopilot": {"px4": px4}}
+        return Platform.parse(document, here=PX4_PLATFORM, origin=PX4_PLATFORM / "platform.yaml")
 
     return make
 
@@ -89,22 +90,17 @@ def environment_file(tmp_path: Path):  # noqa: ANN201 -- returns the maker below
 
 @pytest.fixture
 def platform_dir(tmp_path: Path):  # noqa: ANN201 -- returns the maker below
-    """Copy the PX4 platform to tmp_path/platforms/<name> with its `autopilot.px4` replaced.
+    """Write tmp_path/platforms/<name>/platform.yaml: the PX4 platform's model and bridge, `document` over them.
 
-    model.sdf and bridge.yaml are links; the PX4 platform, whose meshes it borrows, is linked next to it.
+    `document` is laid over `model` and `bridge` naming the PX4 platform's files; `autopilot.px4`
+    is `px4` unless the document gives `autopilot`.
     """
 
-    def make(name: str, **px4: object) -> Path:
-        platforms = tmp_path / "platforms"
-        borrowed = platforms / PX4_PLATFORM.name
-        if not borrowed.exists():
-            platforms.mkdir(exist_ok=True)
-            borrowed.symlink_to(PX4_PLATFORM)
-        out = platforms / name
-        out.mkdir()
-        for f in ("model.sdf", "bridge.yaml"):
-            (out / f).symlink_to(PX4_PLATFORM / f)
-        (out / "agent.yaml").write_text(yaml.safe_dump({"autopilot": {"px4": px4}}))
+    def make(name: str, document: dict | None = None, **px4: object) -> Path:
+        out = tmp_path / "platforms" / name
+        out.mkdir(parents=True)
+        own = {"model": str(PX4_PLATFORM / "model.sdf"), "bridge": str(PX4_PLATFORM / "bridge.yaml")}
+        (out / "platform.yaml").write_text(yaml.safe_dump(own | {"autopilot": {"px4": px4}} | (document or {})))
         return out
 
     return make

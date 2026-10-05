@@ -11,7 +11,11 @@ from worldgen.world import SdfWorld, StartMarker
 
 pytestmark = pytest.mark.usefixtures("no_network")
 
-SMALL_ROOM = Path(__file__).resolve().parent / "environments/small_room.yaml"
+ENVIRONMENTS = Path(__file__).resolve().parent / "environments"
+SMALL_ROOM = ENVIRONMENTS / "small_room.yaml"
+ROVER_DIR = "../platforms/rover_differential_lidar_px4"  # from the test environments
+BOX_MODEL = """<sdf version="1.9"><model name="box"><link name="base"><collision name="c">
+<geometry><box><size>0.5 0.4 0.2</size></box></geometry></collision></link></model></sdf>"""
 RC1 = "fca3df865af36124a28c9d607e850f111dbaaea9"  # the commit v1.18.0-rc1 points to
 COMMIT = "4dbd2e069a5c30c2e53e47e842095d2576dc38c4"
 
@@ -30,7 +34,7 @@ def test_rover_room_bundle(environment):
     px4 = services["px4-rover1"]["environment"]
     assert px4["PX4_GZ_WORLD"] == "field"
     assert px4["PX4_GZ_MODEL_NAME"] == "rover1"
-    assert px4["PX4_SYS_AUTOSTART"] == "50000"  # from agent.yaml
+    assert px4["PX4_SYS_AUTOSTART"] == "50000"  # from the platform's platform.yaml
     assert "PX4_ZENOH_NAMESPACE" not in px4
     assert {e["ros_topic_name"] for e in bundle.bridge} == {"/clock", "/scan", "/scan/points", "/ground_truth"}
     # every gz peer in the session shares one partition, named after it
@@ -57,7 +61,7 @@ def test_two_agents_namespaced(environment):
     assert services["px4-rover2"]["environment"]["PX4_ZENOH_NAMESPACE"] == "rover2"
 
     assert '"/sim/platforms/rover_differential_lidar_px4.rover2/model.sdf", name: "rover2"' in bundle.spawn
-    model = ET.fromstring(bundle.models["rover_differential_lidar_px4.rover2"])
+    model = ET.fromstring(bundle.models["rover_differential_lidar_px4.rover2/model.sdf"])
     assert model.findtext(".//sensor/topic") == "/rover2/scan"
     assert model.findtext(".//odom_topic") == "/rover2/ground_truth"
 
@@ -66,6 +70,58 @@ def test_two_agents_namespaced(environment):
     assert "/rover1/scan" in ros
     assert "/rover2/scan/points" in ros
     assert ros.count("/clock") == 1
+    # each agent's entries are rewritten in its own copy, the platform's stay as they are
+    assert "/scan" in {e["ros_topic_name"] for e in bundle.environment.agents["rover2"].platform.bridge}
+
+
+@pytest.mark.parametrize("form", ["inline", "base"])
+def test_three_forms_one_bundle(form):
+    directory = build(Environment.load(ENVIRONMENTS / "rover_platform_dir.yaml"))
+    other = build(Environment.load(ENVIRONMENTS / f"rover_platform_{form}.yaml"))
+    assert dict(other) == dict(directory)  # every field of the bundle; as dicts, a failure names the fields
+
+
+def test_one_model_directory_two_agents(environment):
+    agents = {
+        "rover1": {"platform": ROVER_DIR},
+        "rover11": {"platform": {"base": ROVER_DIR, "bridge": []}, "pose": [2, 0, 0.2]},
+    }
+    platforms = build(environment("shared", namespaces=True, agents=agents)).platforms
+    assert set(platforms) == {f"rover_differential_lidar_px4{copy}" for copy in ("", ".rover1", ".rover11")}
+
+
+def test_firmware_over_the_base(environment):
+    agents = {
+        "rover1": {"platform": ROVER_DIR},
+        # the base names a version: null removes it, or version and commit would both be set
+        "rover11": {"platform": {"base": ROVER_DIR, "autopilot": {"px4": {"version": None, "commit": COMMIT}}}},
+    }
+    services = build(environment("refirmed", namespaces=True, agents=agents)).compose["services"]
+    assert services["px4-rover1"]["image"] == f"simops-sandbox-px4:{RC1[:12]}"
+    assert services["px4-rover11"]["image"] == f"simops-sandbox-px4:{COMMIT[:12]}"
+    assert {services[f"px4-{a}"]["environment"]["PX4_SYS_AUTOSTART"] for a in agents} == {"50000"}
+
+
+@pytest.mark.generating_files
+def test_model_not_named_model_sdf(environment, tmp_path):
+    (tmp_path / "husky").mkdir()
+    (tmp_path / "husky/husky.sdf").write_text(BOX_MODEL)
+    husky = {"model": str(tmp_path / "husky/husky.sdf"), "bridge": [], "autopilot": {"px4": {"airframe": 50000}}}
+    bundle = build(environment("husky", agents={"rover1": {"platform": husky}}))
+    assert bundle.platforms == {"husky": tmp_path / "husky"}
+    assert '"/sim/platforms/husky/husky.sdf"' in bundle.spawn
+
+
+@pytest.mark.generating_files
+def test_two_model_directories_one_name(environment, tmp_path):
+    agents = {}
+    for i, side in enumerate(("a", "b")):
+        (tmp_path / side / "rover").mkdir(parents=True)
+        (tmp_path / side / "rover/model.sdf").write_text(BOX_MODEL)
+        model = str(tmp_path / side / "rover/model.sdf")
+        agents[f"rover{i}"] = {"platform": {"model": model, "bridge": [], "autopilot": {"px4": {"airframe": 1}}}}
+    with pytest.raises(SystemExit, match=rf"{tmp_path / 'a/rover'} and {tmp_path / 'b/rover'}"):
+        build(environment("clash", namespaces=True, agents=agents))
 
 
 def test_empty_world_is_open(environment):

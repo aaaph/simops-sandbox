@@ -9,7 +9,9 @@ from simops.world import EmptySpec, RoomSpec, WorldFile
 
 ROOT = Path(__file__).resolve().parents[2]
 ENVIRONMENTS = Path(__file__).resolve().parent / "environments"  # the base of the `environment` fixture
-PX4_PLATFORM = ROOT / "platforms/rover_differential_lidar_px4"
+PX4_PLATFORM = Path(__file__).resolve().parent / "platforms/rover_differential_lidar_px4"  # the tests' own copy
+AUTOPILOT = {"px4": {"airframe": 50000}}
+ROVER_DIR = "../platforms/rover_differential_lidar_px4"  # from the test environments
 
 
 def test_defaults():
@@ -27,10 +29,25 @@ def test_mavlink_port(environment):
 
 
 def test_paths_relative_to_environment_file(monkeypatch):
-    # small_room.yaml names ../../../platforms/...: right from its own directory, wrong from tests/
+    # small_room.yaml names ../platforms/...: right from its own directory, wrong from tests/
     monkeypatch.chdir(ROOT / "tests")
     environment = Environment.load(Path("simops/environments/small_room.yaml"))
-    assert environment.agents["rover1"].platform.dir == PX4_PLATFORM
+    assert environment.agents["rover1"].platform.model == PX4_PLATFORM / "model.sdf"
+
+
+def test_inline_platform_relative_to_environment_file(environment):
+    inline = {"model": f"{ROVER_DIR}/model.sdf", "bridge": [], "autopilot": AUTOPILOT}
+    rover = environment("inline", agents={"rover1": {"platform": inline}}).agents["rover1"].platform
+    assert rover.model == PX4_PLATFORM / "model.sdf"
+
+
+def test_directory_and_inline_side_by_side(environment):
+    agents = {
+        "rover1": {"platform": ROVER_DIR},
+        "rover11": {"platform": {"base": ROVER_DIR}, "pose": [2, 0, 0.2]},
+    }
+    loaded = environment("both", namespaces=True, agents=agents).agents
+    assert loaded["rover1"].platform == loaded["rover11"].platform
 
 
 def test_world_sources(environment):
@@ -65,8 +82,21 @@ def test_partial_pose(environment):
         ({"namespace": True}, r"`namespace` is not a key"),
         ({"agents": {"rover1": {"platform": "x", "position": [0, 0]}}}, r"`agents\.rover1\.position` is not"),
         ({"network": {"port": 7448}}, r"`network\.port` is not a key"),
-        # the firmware lives in the platform's agent.yaml
-        ({"autopilot": {"px4": {"version": "v1.18.0-rc1"}}}, "agent.yaml"),
+        # the firmware lives in the platform, in its platform.yaml or inline
+        ({"autopilot": {"px4": {"version": "v1.18.0-rc1"}}}, r"`autopilot\.px4` of its platform\.yaml"),
+        # an inline platform is checked like any other, and the message names the agent
+        (
+            {"agents": {"rover1": {"platform": {"model": "x.sdf", "brige": [], "autopilot": AUTOPILOT}}}},
+            r"agents\.rover1\.platform: .*`brige` is not a key a platform defines",
+        ),
+        (
+            {
+                "agents": {
+                    "rover1": {"platform": {"base": ROVER_DIR, "autopilot": {"px4": {"version": "v1.17.0"}}}}
+                }
+            },
+            r"^rejected\.yaml: agents\.rover1\.platform: .*v1\.17\.0.*minimum is 1\.18",
+        ),
     ],
 )
 def test_rejected(environment, keys, message):
@@ -91,7 +121,14 @@ def test_unreadable_file(tmp_path):
 
 
 @pytest.mark.generating_files
-def test_invalid_agent_yaml(environment, platform_dir):
+def test_invalid_platform_yaml(environment, platform_dir):
     old = platform_dir("old_px4", airframe=50000, version="v1.17.0")
-    with pytest.raises(InvalidEnvironment, match=rf"{old / 'agent.yaml'}.*v1\.17\.0.*minimum is 1\.18"):
+    with pytest.raises(InvalidEnvironment, match=rf"{old / 'platform.yaml'}: .*v1\.17\.0.*minimum is 1\.18"):
         environment("oldpx4", agents={"rover1": {"platform": str(old)}})
+
+
+@pytest.mark.generating_files
+def test_invalid_agent_yaml(environment, tmp_path):
+    (tmp_path / "agent.yaml").write_text("autopilot: {px4: {airframe: 50000}}")
+    with pytest.raises(InvalidEnvironment, match=rf"{tmp_path}: agent\.yaml is now platform\.yaml"):
+        environment("oldagent", agents={"rover1": {"platform": str(tmp_path)}})

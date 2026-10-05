@@ -167,26 +167,28 @@ def agents(environment: Environment) -> tuple[list[str], list[dict], dict[str, P
 
     With namespaces, each agent gets its own copy of its platform, `<p>.<agent>`, whose model's gz
     topics sit under /<agent>, and the bridge maps them to ROS names under /<agent> too. The copies
-    are the platform directories to copy and the rewritten model.sdf of each.
+    are the model directories to copy and the rewritten model of each, by its path in platforms/.
     """
     bridge, spawns, copies, models = [], [], {}, {}
     for agent, spec in environment.agents.items():
-        platform = spec.platform.name
-        entries = yaml.safe_load(spec.platform.bridge.read_text())
+        platform, sdf = spec.platform.name, spec.platform.model.name
+        entries = [dict(e) for e in spec.platform.bridge]  # the platform's own, shared by its agents
         if environment.namespaces:
             model = ET.parse(spec.platform.model)
             for el in model.iter():
                 if el.tag in ("topic", "odom_topic") and el.text:  # sensors, odometry: not model-scoped
                     el.text = namespaced(agent, el.text)
             platform = f"{platform}.{agent}"
-            copies[platform] = spec.platform.dir
-            models[platform] = ET.tostring(model.getroot(), encoding="us-ascii", xml_declaration=True).decode()
+            copies[platform] = spec.platform.model.parent
+            models[f"{platform}/{sdf}"] = ET.tostring(
+                model.getroot(), encoding="us-ascii", xml_declaration=True
+            ).decode()
             for e in entries:
                 if e["gz_topic_name"] != "/clock":  # one clock for the whole world
                     e["gz_topic_name"] = namespaced(agent, e["gz_topic_name"])
                     e["ros_topic_name"] = namespaced(agent, e["ros_topic_name"])
         bridge += [e for e in entries if e not in bridge]
-        request = entity_factory(agent, f"/sim/platforms/{platform}/model.sdf", spec.pose)
+        request = entity_factory(agent, f"/sim/platforms/{platform}/{sdf}", spec.pose)
         spawns.append(f"spawn {agent} '{request}'")
     return spawns, bridge, copies, models
 
@@ -204,8 +206,8 @@ class Bundle(BaseModel):
     compose: dict
     spawn: str
     bridge: list[dict]
-    platforms: dict[str, Path]  # name in platforms/ -> the directory to copy
-    models: dict[str, str]  # name in platforms/ -> its rewritten model.sdf
+    platforms: dict[str, Path]  # name in platforms/ -> the model directory to copy
+    models: dict[str, str]  # path in platforms/ (<name>/<model file>) -> the rewritten model
     firmware_lines: list[str]
 
     def write(self, out: Path) -> Path:
@@ -214,8 +216,8 @@ class Bundle(BaseModel):
         (out / "worlds").mkdir(parents=True)
         for name, source in self.platforms.items():
             shutil.copytree(source, out / "platforms" / name)
-        for name, model in self.models.items():
-            (out / "platforms" / name / "model.sdf").write_text(model)
+        for path, model in self.models.items():
+            (out / "platforms" / path).write_text(model)
         sdf = out / "worlds" / self.world_file
         if isinstance(self.world, Path):
             shutil.copy(self.world, sdf)
@@ -233,11 +235,18 @@ class Bundle(BaseModel):
 
 def build(environment: Environment) -> Bundle:
     """Build the environment's bundle in memory: reads the platforms and the world, writes nothing."""
-    # the platforms and the models they borrow from (meshes of another platform: model://<name>/...)
-    dirs = {agent.platform.dir for agent in environment.agents.values()}
-    for platform in list(dirs):
-        borrowed = re.findall(r"model://([^/<]+)/", (platform / "model.sdf").read_text())
-        dirs |= {platform.parent / name for name in borrowed}
+    # the agents' model directories and the models they borrow from, their siblings
+    # (meshes of another platform: model://<name>/...)
+    dirs = set()
+    for agent in environment.agents.values():
+        model = agent.platform.model
+        dirs |= {model.parent} | {
+            model.parent.parent / n for n in re.findall(r"model://([^/<]+)/", model.read_text())
+        }
+    by_name: dict[str, Path] = {}
+    for d in sorted(dirs):
+        if (other := by_name.setdefault(d.name, d)) != d:
+            sys.exit(f"two model directories are both named {d.name} in platforms/: {other} and {d}")
 
     source = environment.world.source
     # ponytail: clearance from the first agent's platform; pass the widest if they differ a lot
@@ -276,7 +285,7 @@ def build(environment: Environment) -> Bundle:
         compose=compose(environment, Path(world_file).stem, world_name, firmware),
         spawn=SPAWN.format(world=world_name, agents="\n".join(spawns)),
         bridge=bridge,
-        platforms={d.name: d for d in dirs} | copies,
+        platforms=by_name | copies,
         models=models,
         firmware_lines=firmware_lines,
     )

@@ -8,5 +8,5 @@ world:
 
 agents:
   rover1:
-    platform: ../../../platforms/rover_differential_lidar_px4
+    platform: ../platforms/rover_differential_lidar_px4
     pose: [0, 0, 0.2]

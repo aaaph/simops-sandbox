@@ -1,0 +1,20 @@
+# The tests' own copy of platforms/rover_differential_lidar_px4, so the tests do not depend on the
+# example platforms (the guard in tests/conftest.py fails a test that reads platforms/). The
+# directory keeps the model's name: model.sdf refers to its meshes as model://<that name>/.
+#
+# The platform: this body, the topics the sim bridges for it, and the autopilot that drives it
+# -- what cannot be separated from the body. An environment picks the platform (this directory,
+# or the same keys inline, or `base: <this directory>` with keys laid over it); paths are
+# relative to this file.
+model: model.sdf # its directory is the model: meshes/ next to it
+bridge: bridge.yaml # or the entries inline, as a list
+autopilot:
+  px4:
+    # gz_rover_differential: the rover modules, and wheel geometry and speed limits
+    # tuned for this chassis
+    airframe: 50000
+    # `version: v1.18.0` (a release tag, 1.18 or later) or `commit: <full SHA>`; neither:
+    # the newest 1.18+ release, or pre-release while there is none. Pinned because the
+    # /fmu/* type hashes are part of the zenoh key: whatever speaks to PX4 must use
+    # px4_msgs from this same version, or the topics silently vanish.
+    version: v1.18.0-rc1

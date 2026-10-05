@@ -1,0 +1,38 @@
+# Three forms, one bundle (spec: platform): rover1's platform written out key by key -- what
+# ../platforms/rover_differential_lidar_px4/platform.yaml and its bridge.yaml say, inline. Builds the
+# same bundle as rover_platform_dir.yaml. Paths are relative to this file.
+name: rover_platform
+
+world:
+  empty_world:
+
+agents:
+  rover1:
+    platform:
+      model: ../platforms/rover_differential_lidar_px4/model.sdf
+      bridge:
+        - ros_topic_name: "/clock"
+          gz_topic_name: "/clock"
+          ros_type_name: "rosgraph_msgs/msg/Clock"
+          gz_type_name: "gz.msgs.Clock"
+          direction: GZ_TO_ROS
+        - ros_topic_name: "/scan"
+          gz_topic_name: "/scan"
+          ros_type_name: "sensor_msgs/msg/LaserScan"
+          gz_type_name: "gz.msgs.LaserScan"
+          direction: GZ_TO_ROS
+        - ros_topic_name: "/scan/points"
+          gz_topic_name: "/scan/points"
+          ros_type_name: "sensor_msgs/msg/PointCloud2"
+          gz_type_name: "gz.msgs.PointCloudPacked"
+          direction: GZ_TO_ROS
+        - ros_topic_name: "/ground_truth"
+          gz_topic_name: "/ground_truth"
+          ros_type_name: "nav_msgs/msg/Odometry"
+          gz_type_name: "gz.msgs.Odometry"
+          direction: GZ_TO_ROS
+      autopilot:
+        px4:
+          airframe: 50000
+          version: v1.18.0-rc1
+    pose: [0, 0, 0.2]

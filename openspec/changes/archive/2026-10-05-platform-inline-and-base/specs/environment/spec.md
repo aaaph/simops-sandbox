@@ -1,15 +1,4 @@
-# environment Specification
-
-## Purpose
-
-An environment is the one file a user writes to describe a simulation: which world, which agents on
-which platforms and where, and how the agents' topics are named; each agent's autopilot comes
-from its platform. It describes no action: `build` turns an environment into a bundle, `up` runs the bundle as a session,
-and what happens in a session (a task, world events, success criteria) is a scenario, which is
-not part of the environment. An agent is one body placed in the simulation: an instance of a
-platform, under its own name.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Environment contents
 An environment SHALL be a YAML file with a `name`, a `world` and an `agents` map. Optional keys
@@ -44,45 +33,6 @@ resolved against that directory (see `platform`).
 - **WHEN** an environment whose agent has an inline platform with `model: ../platforms/<p>/model.sdf` is loaded while the working directory is elsewhere
 - **THEN** the model resolves to `<environment dir>/../platforms/<p>/model.sdf`
 
-### Requirement: Exactly one world source
-The world SHALL be given as exactly one world source: `generate_room` — a room generated from
-`seed`, `size` and `obstacles` — `file`, a path to an SDF world, or `empty_world` — an open field
-with no walls and no obstacles, taking no fields. Giving more than one, or none, SHALL fail
-loading with a message naming `generate_room`, `file` and `empty_world`.
-
-#### Scenario: Generated room
-- **WHEN** the world is `generate_room: {seed: 42, size: [20, 16]}`
-- **THEN** the environment's world is a room generated from that seed and size
-
-#### Scenario: Ready-made world
-- **WHEN** the world is `file: ../worlds/<w>.sdf`
-- **THEN** the environment's world is that file
-
-#### Scenario: Empty world
-- **WHEN** the world is `empty_world:`
-- **THEN** the environment's world is an open field: no walls, no obstacles, only the ground and
-  the start marker
-
-#### Scenario: empty_world takes no fields
-- **WHEN** the world is `empty_world: {size: [12, 9]}`
-- **THEN** loading fails with a message naming `size` and `empty_world`
-
-#### Scenario: Both generate_room and file
-- **WHEN** the world sets both `generate_room` and `file`
-- **THEN** loading fails with a message naming `generate_room`, `file` and `empty_world`
-
-#### Scenario: empty_world together with another source
-- **WHEN** the world sets `empty_world` together with `generate_room` or `file`
-- **THEN** loading fails with a message naming `generate_room`, `file` and `empty_world`
-
-#### Scenario: No world source
-- **WHEN** the world sets none of `generate_room`, `file` or `empty_world`
-- **THEN** loading fails with a message naming `generate_room`, `file` and `empty_world`
-
-#### Scenario: Old `room` key
-- **WHEN** the world is given as `room: {seed: 42}`
-- **THEN** loading fails with a message saying `world.room` is now `world.generate_room`
-
 ### Requirement: Agents
 Each entry of `agents` SHALL name one agent — its key is the agent's name in the simulation —
 and give its `platform` and an optional `pose` `[x, y, z, roll, pitch, yaw]` (missing components
@@ -110,27 +60,6 @@ invalid one with a message saying where the platform is written, the key and why
 #### Scenario: Directory and inline platforms side by side
 - **WHEN** with `namespaces: true`, `rover1` names `../platforms/rover_differential_lidar_px4` and `rover11` has an inline platform with `base: ../platforms/rover_differential_lidar_px4`
 - **THEN** the environment loads with both agents
-
-### Requirement: Several agents need namespaces
-An environment with more than one agent SHALL set `namespaces: true`; otherwise loading it SHALL
-fail with a message saying so, before anything is built or started.
-
-#### Scenario: Two agents without namespaces
-- **WHEN** an environment with two agents and `namespaces: false` is loaded
-- **THEN** simops exits with an error naming `namespaces: true` and builds nothing
-
-### Requirement: Environment path on the command line
-The environment path given to a simops command SHALL be resolved against the directory the
-command is run from, both for the `simops` command and for `pixi run simops` from any directory
-of the project.
-
-#### Scenario: Relative path from a subdirectory
-- **WHEN** `simops build rover_room.yaml` runs in `environments/`
-- **THEN** it builds `environments/rover_room.yaml`
-
-#### Scenario: Through pixi from a subdirectory
-- **WHEN** `pixi run simops build rover_room.yaml` runs in `environments/`
-- **THEN** it builds `environments/rover_room.yaml`
 
 ### Requirement: Unknown keys are rejected
 Loading SHALL fail on a key an environment does not define, at any level (the environment, its

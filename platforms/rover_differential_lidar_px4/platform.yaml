@@ -1,5 +1,9 @@
-# What cannot be separated from this body: the autopilot that drives it. An environment picks
-# the platform; the airframe and the firmware it runs on follow from here.
+# The platform: this body, the topics the sim bridges for it, and the autopilot that drives it
+# -- what cannot be separated from the body. An environment picks the platform (this directory,
+# or the same keys inline, or `base: <this directory>` with keys laid over it); paths are
+# relative to this file.
+model: model.sdf # its directory is the model: meshes/ next to it
+bridge: bridge.yaml # or the entries inline, as a list
 autopilot:
   px4:
     # gz_rover_differential: the rover modules, and wheel geometry and speed limits

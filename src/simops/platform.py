@@ -1,4 +1,4 @@
-"""Platforms: body types in platforms/<p>/ -- model.sdf, bridge.yaml, agent.yaml."""
+"""Platforms: body types, one document each -- in platforms/<p>/platform.yaml or inline (spec: platform)."""
 
 import math
 import xml.etree.ElementTree as ET
@@ -6,26 +6,38 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
 from simops import describe
 from simops.firmware import PX4Autopilot
 
+PLATFORM_FILE = "platform.yaml"
+
 
 class Autopilot(BaseModel):
-    """`autopilot:` of agent.yaml -- for now every platform runs PX4."""
+    """`autopilot:` of a platform -- for now every platform runs PX4."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     px4: PX4Autopilot
 
 
-class AgentFile(BaseModel):
-    """agent.yaml: what cannot be separated from the body."""
+class PlatformDocument(BaseModel):
+    """A platform document once its paths are resolved and its bases laid under it."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
+    model: Path
+    bridge: list[dict]
     autopilot: Autopilot
+
+    @field_validator("model")
+    @classmethod
+    def _model_exists(cls, path: Path) -> Path:
+        if not path.is_file():
+            msg = f"{path} is not a file"
+            raise ValueError(msg)
+        return path
 
 
 class Platform(BaseModel):
@@ -33,42 +45,39 @@ class Platform(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    dir: Path
+    model: Path  # the SDF model; its directory is the model's directory
+    bridge: list[dict]  # ros_gz_bridge entries -- shared: copy before changing them
     px4: PX4Autopilot
 
     @classmethod
     def load(cls, platform_dir: Path) -> Platform:
-        """Read a platform directory; it must hold model.sdf, bridge.yaml and agent.yaml."""
-        missing = [f for f in ("model.sdf", "bridge.yaml", "agent.yaml") if not (platform_dir / f).exists()]
-        if missing:
-            msg = f"platform {platform_dir} has no {', '.join(missing)}"
-            raise ValueError(msg)
-        return cls.parse(platform_dir, yaml.safe_load((platform_dir / "agent.yaml").read_text()))
+        """Read the platform in a directory, `<platform_dir>/platform.yaml`."""
+        return cls.parse(read(platform_dir), here=platform_dir, origin=platform_dir / PLATFORM_FILE)
 
     @classmethod
-    def parse(cls, platform_dir: Path, agent_yaml: Any) -> Platform:  # noqa: ANN401 -- the raw YAML document
-        """Validate the platform's agent.yaml document; errors name `<platform_dir>/agent.yaml`."""
+    def parse(cls, document: Any, *, here: Path, origin: Path | None = None) -> Platform:  # noqa: ANN401 -- the raw YAML document
+        """Validate a platform document whose paths are relative to `here`.
+
+        Errors name `origin` (the platform.yaml, None for an inline platform) and the bases'
+        platform.yaml files the document is laid over.
+        """
+        where = [str(origin)] if origin else []
         try:
-            meta = AgentFile.model_validate(agent_yaml or {})
+            resolved, bases = resolve(document, here, (here,) if origin else ())
+        except ValueError as e:
+            raise ValueError(": ".join([*where, str(e)])) from None
+        where = [", ".join(where + [f"base {b}" for b in bases])] if where or bases else []
+        try:
+            meta = PlatformDocument.model_validate(resolved)
         except ValidationError as e:
-            msg = f"{platform_dir / 'agent.yaml'}: " + "; ".join(describe(err, "agent.yaml") for err in e.errors())
-            raise ValueError(msg) from None
-        return cls(dir=platform_dir, px4=meta.autopilot.px4)
+            msg = "; ".join(describe(err, "a platform") for err in e.errors())
+            raise ValueError(": ".join([*where, msg])) from None
+        return cls(model=meta.model, bridge=meta.bridge, px4=meta.autopilot.px4)
 
     @property
     def name(self) -> str:
-        """The platform's directory name, as models refer to it (model://<name>/...)."""
-        return self.dir.name
-
-    @property
-    def model(self) -> Path:
-        """The platform's SDF model."""
-        return self.dir / "model.sdf"
-
-    @property
-    def bridge(self) -> Path:
-        """The platform's ros_gz_bridge entries."""
-        return self.dir / "bridge.yaml"
+        """The model's directory name, as the model refers to it (model://<name>/...)."""
+        return self.model.parent.name
 
     def width(self) -> float:
         """Widest Y extent of the collision shapes, in metres.
@@ -113,3 +122,60 @@ def y_row(roll: float, pitch: float, yaw: float) -> tuple[float, float, float]:
     """Row of the ROS roll-pitch-yaw rotation matrix (Rz @ Ry @ Rx) that maps body axes onto world Y."""
     sr, cr, sp, cp, sy, cy = (f(a) for a in (roll, pitch, yaw) for f in (math.sin, math.cos))
     return (sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr)
+
+
+def read(platform_dir: Path) -> Any:  # noqa: ANN401 -- the raw YAML document
+    """Read the platform document of a directory, its platform.yaml."""
+    file = platform_dir / PLATFORM_FILE
+    if not file.is_file():
+        if (platform_dir / "agent.yaml").is_file():
+            msg = (
+                f"{platform_dir}: agent.yaml is now {PLATFORM_FILE}, with `model: model.sdf` and "
+                "`bridge: bridge.yaml` beside its `autopilot`"
+            )
+        else:
+            msg = f"platform {platform_dir} has no {PLATFORM_FILE}"
+        raise ValueError(msg)
+    return yaml.safe_load(file.read_text())
+
+
+def resolve(document: Any, here: Path, chain: tuple[Path, ...]) -> tuple[Any, list[Path]]:  # noqa: ANN401 -- raw YAML
+    """Make a document's paths absolute against `here`, then lay it over its base.
+
+    `chain` holds the platform directories already on the way, to stop a cycle of bases.
+    Returns the document and the platform.yaml files of its bases, nearest first.
+    """
+    if not isinstance(document, dict):
+        return document, []  # validation says what is wrong with it
+    doc = dict(document)
+    if isinstance(doc.get("model"), str):
+        doc["model"] = str((here / doc["model"]).resolve())
+    if isinstance(doc.get("bridge"), str):
+        bridge = (here / doc["bridge"]).resolve()
+        try:
+            doc["bridge"] = yaml.safe_load(bridge.read_text())
+        except OSError as e:
+            msg = f"bridge: {bridge}: {e.strerror}"
+            raise ValueError(msg) from None
+    base, bases, under = doc.pop("base", None), [], {}
+    if base is not None:
+        base_dir = (here / str(base)).resolve()
+        if base_dir in chain:
+            msg = "a cycle of bases: " + " -> ".join(map(str, (*chain, base_dir)))
+            raise ValueError(msg)
+        under, deeper = resolve(read(base_dir), base_dir, (*chain, base_dir))
+        bases = [base_dir / PLATFORM_FILE, *deeper]
+    return merge_patch(under, doc), bases
+
+
+def merge_patch(target: Any, patch: Any) -> Any:  # noqa: ANN401 -- YAML values
+    """Lay `patch` over `target` (JSON Merge Patch, RFC 7386): mappings merge, null removes, the rest replaces."""
+    if not isinstance(patch, dict):
+        return patch
+    merged = dict(target) if isinstance(target, dict) else {}
+    for key, value in patch.items():
+        if value is None:
+            merged.pop(key, None)
+        else:
+            merged[key] = merge_patch(merged.get(key), value)
+    return merged

@@ -45,11 +45,13 @@ class Agent(BaseModel):
 
     @field_validator("platform", mode="before")
     @classmethod
-    def _platform_dir(cls, value: Any, info: ValidationInfo) -> Any:  # noqa: ANN401 -- a path or a Platform
-        """Load the platform from its directory, relative to the environment file."""
+    def _platform(cls, value: Any, info: ValidationInfo) -> Any:  # noqa: ANN401 -- a path, a document or a Platform
+        """Load the platform from its directory or from the document inline, relative to the environment file."""
         if isinstance(value, Platform):
             return value
         base = (info.context or {}).get("base", Path.cwd())
+        if isinstance(value, dict):
+            return Platform.parse(value, here=base)
         return Platform.load((base / str(value)).resolve())
 
 

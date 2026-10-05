@@ -18,8 +18,13 @@ context: |
   generation (src/worldgen), robot software (the user's). Each term belongs to one side.
 
   Simulation (simops):
-  - platform: a body type, platforms/<p>/ with model.sdf, bridge.yaml, agent.yaml (what cannot be
-    separated from the body: the PX4 airframe and the firmware it runs on).
+  - platform: a body type, one document -- its model, its bridge entries and its autopilot (what
+    cannot be separated from the body: the PX4 airframe and the firmware it runs on) -- in
+    platforms/<p>/platform.yaml or inline. Spec: platform.
+  - inline platform: a platform document written under an agent's `platform:` in the environment.
+    Spec: platform.
+  - base platform: the platform directory a platform document names as `base` and is laid over.
+    Spec: platform.
   - agent: one body in the simulation, an instance of a platform, named in the environment, with
     a start pose. Not a decision-making policy (the RL sense), not an AI coding agent.
   - environment: the YAML file (environments/): world, agents, namespaces, router port, MAVLink port; describes
@@ -39,7 +44,7 @@ context: |
   - ground truth: the simulator's true state (pose, map, start pose), for evaluation only.
   - sim control: what only the simulator can do (sessions, world events, time).
   - PX4 firmware: `version` (a release tag), `commit` (a full SHA) or the default, named in a
-    platform's agent.yaml and resolved at `build` to one commit. Spec: autopilot.
+    platform's `autopilot.px4` and resolved at `build` to one commit. Spec: autopilot.
 
   World generation (worldgen; knows nothing of simops -- no platforms, agents, environments):
   - SDF world: what worldgen produces, a name and its parts inside the envelope every world shares
@@ -97,11 +102,11 @@ context: |
     apart from I/O so it can be tested this way. A test whose behavior is a file is marked
     `generating_files`; a test that starts containers is `docker` instead, whatever files it
     writes; a scenario test is a Docker test marked `scenario` too.
-  - Tests never touch the repository's own files at run time beyond reading code and platforms:
-    they write only to pytest's temporary directories (bundles go there through
-    `SIMOPS_BUILD_DIR`) and use their own environments (tests/simops/environments/, the
-    `environment` fixture), not the examples in environments/. A guard in tests/conftest.py fails
-    a test that reads environments/ or writes to build/.
+  - Tests never touch the repository's own files at run time beyond reading code: they write only
+    to pytest's temporary directories (bundles go there through `SIMOPS_BUILD_DIR`) and use their
+    own environments (tests/simops/environments/, the `environment` fixture) and platforms
+    (tests/simops/platforms/), not the examples in environments/ and platforms/. A guard in
+    tests/conftest.py fails a test that reads environments/ or platforms/ or writes to build/.
 
 # Applied when the named artifact is written.
 rules:
@@ -122,8 +127,9 @@ rules:
       needs them is a Docker test (`-m docker`) and says so in its verification.
     - Unit tests run in memory and fast (see CONVENTIONS); a task whose test must write real
       files marks it `generating_files` and says so in its verification.
-    - Tests write only to pytest's temporary directories and use their own environments, never
-      build/ or the examples in environments/ (the guard in tests/conftest.py enforces it); a
-      task that needs a new test environment adds it under tests/.
+    - Tests write only to pytest's temporary directories and use their own environments and
+      platforms, never build/ or the examples in environments/ and platforms/ (the guard in
+      tests/conftest.py enforces it); a task that needs a new test environment or platform adds
+      it under tests/.
     - Docker tests run on images that already exist; a task that needs a new image says how it
       is built, as its own step.

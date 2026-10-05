@@ -72,10 +72,12 @@ Unit tests are written for fast, cheap runs, in memory first:
 - tests write only to pytest's temporary directories: `tests/conftest.py` points
   `SIMOPS_BUILD_DIR` there for the whole run, so no test touches `build/` (nor the bundle of a
   session someone keeps up); they use their own environments (`tests/simops/environments/`, the
-  `environment` fixture), never the examples in `environments/`. A guard in `tests/conftest.py`
-  (a sys audit hook, `tests/test_guard.py`) fails any test that reads `environments/` or writes to
+  `environment` fixture) and platforms (`tests/simops/platforms/`, a copy of the rover that keeps
+  its directory name, which its model's `model://` URIs name), never the examples in
+  `environments/` and `platforms/`. A guard in `tests/conftest.py` (a sys audit hook,
+  `tests/test_guard.py`) fails any test that reads `environments/` or `platforms/` or writes to
   `build/`, and stops the run if a test module does so when it is imported; do not work around
-  it — give the test its own environment, write to `tmp_path`.
+  it — give the test its own environment or platform, write to `tmp_path`.
 
 How it is done, beyond the specs:
 - Entities are pydantic models (`extra="forbid"`): an invalid environment fails `load` with one
@@ -90,9 +92,14 @@ How it is done, beyond the specs:
 - The CLI is Typer; the compose project is driven through testcontainers' `DockerCompose`
   (`up --wait`, exec, logs), except `down`, which adds `--remove-orphans` that `stop()` lacks.
   testcontainers' logger is silenced: simops prints the failures itself.
-- A platform (`platforms/<p>/`) is `model.sdf` + `bridge.yaml` + `agent.yaml`; the last holds
-  what cannot be separated from the body — the PX4 airframe and the firmware it runs on
-  (`autopilot.px4`); the environment only picks platforms and poses.
+- A platform is one document (spec: `platform`): `model` (the SDF; its directory is the model,
+  copied whole into the bundle), `bridge` (the entries, or a file of them), `autopilot` (what
+  cannot be separated from the body — the PX4 airframe and the firmware it runs on,
+  `autopilot.px4`) and an optional `base`. It is `platforms/<p>/platform.yaml`, or written inline
+  under an agent's `platform:`, or `base: <platform directory>` with keys laid over it (JSON Merge
+  Patch: mappings merge, lists replace, `null` removes — switching a base's `version` to a
+  `commit` takes `version: null`). Paths are relative to the file they are written in, resolved
+  before merging. The environment only picks platforms and poses.
 - Spawning goes through `/world/<w>/create` in the generated `spawn.sh`. The create reply can get
   lost over zenoh (#868 below), so it looks for the model in `/world/<w>/pose/info` and retries.
 - Namespaces rewrite the gz `<topic>`/`<odom_topic>` in a per-agent copy of the model
@@ -103,7 +110,7 @@ How it is done, beyond the specs:
 Services: `zenoh-router` (ROS 2 and gz-transport both go through it), `world` (gz Jetty server),
 `px4-<agent>` (PX4 SITL of its platform's firmware, instance `-i N` so the PX4s sharing one network
 namespace get their own MAVLink ports), `spawn` (above) and `sim-sensors` (`ros_gz_bridge` with the agents'
-`bridge.yaml` merged: `/clock`, `/scan`, `/scan/points`, `/ground_truth` — the sim's stand-in for
+bridge entries merged: `/clock`, `/scan`, `/scan/points`, `/ground_truth` — the sim's stand-in for
 the sensor drivers). IMU, odometry and the
 wheels are PX4's `/fmu/*`. Images: `simops-sandbox-{ros,world}` and `simops-sandbox-px4:<commit[:12]>`,
 built by compose on first use; after a Dockerfile change, `docker compose -f
@@ -112,7 +119,7 @@ macOS pixi env, with gz-transport's zenoh backend, so the native macOS GUI attac
 router — no noVNC. The same `GZ_PARTITION` is required on every side: the default is
 `<hostname>:<user>`, so the containers and the Mac never see each other without it.
 
-PX4 version (spec: `autopilot`), in the platform's `agent.yaml` under `autopilot.px4`:
+PX4 version (spec: `autopilot`), in the platform under `autopilot.px4`:
 `version: v1.18.0` or `commit: <full SHA>`, or neither for the newest 1.18+ release (the newest
 1.18+ pre-release while there is none). `build` resolves each platform's firmware with `git
 ls-remote` (network; a `commit` builds offline) and tags the image by the commit, so each
@@ -187,7 +194,7 @@ crash), every container in its network namespace is left without network:
 
 Direction: a generic tool, not robot software — a Python package (library, `simops` CLI, pytest
 helper) taken as a dev-dependency by robot software repositories, the rover here staying as the example. Done:
-environment format, `agent.yaml`, several agents with optional namespaces, bundle,
+environment format, platforms (`platform.yaml`, inline, `base`), several agents with optional namespaces, bundle,
 `up/down/run/host-env/gui` (`src/simops/`). Next, in this order, each when
 something needs it:
 - `simops.testing.sim_session(environment)` — pytest fixture over up/down, per-session name and port

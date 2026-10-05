@@ -34,6 +34,7 @@ repos:
         exclude: \.patch$ # context lines are whitespace-significant
       - id: check-yaml
       - id: check-added-large-files
+        args: [--maxkb=1024] # meshes: the rover's base is 587 KB, and tests have their own copy
       - id: check-xml
         # Gazebo's formats are XML under other extensions, and identify does not
         # know that, so the hook's own `types: [xml]` filter would skip them all.

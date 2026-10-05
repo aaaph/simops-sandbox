@@ -24,8 +24,7 @@ from worldgen import room
 
 pytestmark = pytest.mark.docker
 
-ROOT = Path(__file__).resolve().parents[2]
-PX4_PLATFORM = str(ROOT / "platforms/rover_differential_lidar_px4")
+PX4_PLATFORM = str(Path(__file__).resolve().parent / "platforms/rover_differential_lidar_px4")  # the tests' own
 # the world of these tests: a 25 x 21 m room, as big as sessions in use get
 WORLD = {"generate_room": {"size": [25, 21]}}
 TIMEOUT = 300
@@ -121,7 +120,7 @@ def test_up_and_down(tmp_path, cleanup):
 def test_failed_up_leaves_nothing(tmp_path, cleanup):
     # an agent whose model gz cannot load never appears in the world
     broken = tmp_path / "broken_platform"
-    shutil.copytree(ROOT / "platforms/rover_differential_lidar_px4", broken)
+    shutil.copytree(PX4_PLATFORM, broken)
     (broken / "model.sdf").write_text('<sdf version="1.9">not a model</sdf>')
     world = tmp_path / "room.sdf"  # a ready-made world: the generator cannot measure the broken model
     room.generate(world, clearance=0.9)

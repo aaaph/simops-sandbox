@@ -23,8 +23,7 @@ if TYPE_CHECKING:
 
 pytestmark = [pytest.mark.docker, pytest.mark.scenario]
 
-ROOT = Path(__file__).resolve().parents[2]
-PX4_PLATFORM = str(ROOT / "platforms/rover_differential_lidar_px4")
+PX4_PLATFORM = str(Path(__file__).resolve().parent / "platforms/rover_differential_lidar_px4")  # the tests' own
 MAVLINK_PORT = 14800  # outside the lifecycle tests' ports
 SIDE = 5.0  # m
 METERS_PER_DEGREE = 111_320  # of latitude; flat earth, exact enough over a few metres
