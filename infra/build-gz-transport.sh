@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Build gz-transport 15.1.0 with infra/patches/gz-transport15-zenoh-fixes.patch
-# and swap it into a conda env, keeping the conda original as *.orig.
+# Build gz-transport 15.1.0 with the zenoh fixes not released for Jetty yet and swap
+# it into a conda env, keeping the conda original as *.orig.
 #
 #   infra/build-gz-transport.sh            build and install into ENV_DIR
 #   infra/build-gz-transport.sh --revert   put the conda original back
@@ -10,6 +10,11 @@
 # versions installed in ENV_DIR (read from conda-meta), so the library matches
 # what gz-sim, gz-gui and PX4 there were built with. Needs pixi and network.
 set -euo pipefail
+
+# gazebosim/gz-transport#977 (open): gz-transport15 with the zenoh fixes of main
+# (#867, #868, #961, #842) backported without breaking the 15.1 ABI. Still
+# version 15.1.0. Drop this script once a conda-forge release carries it.
+REV=00835ef50e432e4bc778a4e918e99926553b247a
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 ENV_DIR=${ENV_DIR:-$HERE/../.pixi/envs/default}
@@ -25,7 +30,7 @@ if [ "${1:-}" = "--revert" ]; then
 fi
 
 compgen -G "$META/libgz-transport-15.1.0-*.json" >/dev/null ||
-	{ echo "$ENV_DIR does not have gz-transport 15.1.0; the patch is made for it"; exit 1; }
+	{ echo "$ENV_DIR does not have gz-transport 15.1.0; $REV is made for it"; exit 1; }
 
 # version of an installed conda package, e.g. ver libprotobuf -> 7.35.1
 ver() { ls "$META" | sed -n "s/^$1-\([0-9][^-]*\)-.*\.json$/\1/p"; }
@@ -49,9 +54,9 @@ WORK=${TMPDIR:-/tmp}/gz-transport-build
 rm -rf "$WORK"
 
 pixi exec -c https://prefix.dev/conda-forge "${args[@]}" -- bash -euo pipefail -c '
-	git clone -q --depth 1 --branch gz-transport15_15.1.0 \
-		https://github.com/gazebosim/gz-transport.git "$1"
-	git -C "$1" apply "$2"
+	git init -q "$1"
+	git -C "$1" fetch -q --depth 1 https://github.com/gazebosim/gz-transport.git "$2"
+	git -C "$1" checkout -q FETCH_HEAD
 	cmake -S "$1" -B "$1/build" -G Ninja -DCMAKE_BUILD_TYPE=Release \
 		-DCMAKE_PREFIX_PATH="$CONDA_PREFIX" -DBUILD_TESTING=OFF -DSKIP_PYBIND11=ON >/dev/null
 	cmake --build "$1/build" --target gz-transport >/dev/null
@@ -60,11 +65,11 @@ pixi exec -c https://prefix.dev/conda-forge "${args[@]}" -- bash -euo pipefail -
 	else syms() { "${NM:-nm}" -D --defined-only "$1" | awk "{print \$3}" | grep -vxE "_init|_fini" | sort; }; fi  # ELF init/fini, not API
 	missing=$(comm -23 <(syms "$3") <(syms "$1/build/lib/$4"))
 	if [ -n "$missing" ]; then
-		echo "patched library lacks exported symbols:"; echo "$missing" | c++filt; exit 1
+		echo "the built library lacks exported symbols:"; echo "$missing" | c++filt; exit 1
 	fi
-' _ "$WORK" "$HERE/patches/gz-transport15-zenoh-fixes.patch" "$REF" "$LIB"
+' _ "$WORK" "$REV" "$REF" "$LIB"
 
 [ -f "$TARGET.orig" ] || cp -p "$TARGET" "$TARGET.orig"
 cp "$WORK/build/lib/$LIB" "$TARGET"
 rm -rf "$WORK"
-echo "installed the patched $LIB into $ENV_DIR (conda original kept as $LIB.orig)"
+echo "installed $LIB of ${REV:0:7} into $ENV_DIR (conda original kept as $LIB.orig)"

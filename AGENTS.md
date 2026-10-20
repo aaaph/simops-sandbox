@@ -100,8 +100,11 @@ How it is done, beyond the specs:
   Patch: mappings merge, lists replace, `null` removes — switching a base's `version` to a
   `commit` takes `version: null`). Paths are relative to the file they are written in, resolved
   before merging. The environment only picks platforms and poses.
-- Spawning goes through `/world/<w>/create` in the generated `spawn.sh`. The create reply can get
-  lost over zenoh (#868 below), so it looks for the model in `/world/<w>/pose/info` and retries.
+- Spawning goes through `/world/<w>/create` in the generated `spawn.sh`. Stock gz-transport can
+  lose the create reply over zenoh (#868 below), so it looks for the model in
+  `/world/<w>/pose/info` and retries. With #977 no reply was lost (2026-10-20), but the loop's
+  `sleep 2` also lets the world settle after a spawn: without it, the first readiness check fails
+  (sim time not moving yet) and `test_ready_on_first_check_ignores_timeout` with it.
 - Namespaces rewrite the gz `<topic>`/`<odom_topic>` in a per-agent copy of the model
   (`platforms/<p>.<agent>/`) and the bridge entries; for PX4 (whose zenoh module has no namespace
   option) `sim-px4` in `px4.Dockerfile` writes its topic list `<board root>/zenoh/{pub,sub}.csv` (root `.` in 1.18.0-rc1,
@@ -139,37 +142,40 @@ back with `git show fb24cde:<path>`; gz-transport stays inside the shared networ
 there, so it has none of the zenoh issues below.
 
 **gz-transport is a custom build everywhere** — the macOS pixi env, the `world` image and the `px4`
-image. Stock 15.1.0 has two zenoh bugs that upstream fixed but has not released for Jetty (as of
-2026-09-25), both carried by `infra/patches/gz-transport15-zenoh-fixes.patch` (its header has the
-details), cut down to keep the ABI of the prebuilt gz-sim/gz-gui/PX4 binaries:
-- #966 (backport of #867): the GUI deadlocks at startup (gz-transport#741) unadvertising a
-  service from inside that service's callback.
-- #965 (backport of #961): zenoh loops a process's own publications back synchronously, and PX4's
+image: gazebosim/gz-transport#977 at a pinned commit (`REV` in `infra/build-gz-transport.sh`),
+the Jetty backport of main's zenoh fixes #867, #868, #961 and #842 that keeps the 15.1 ABI of the
+prebuilt gz-sim/gz-gui/PX4 binaries (still version 15.1.0). What stock 15.1.0 gets wrong over zenoh:
+- #867: the GUI deadlocks at startup (gz-transport#741) unadvertising a service from inside that
+  service's callback.
+- #961: zenoh loops a process's own publications back synchronously, and PX4's
   gz_bridge — subscribed to the wheel/ESC command topic it publishes, under one non-recursive
   mutex — deadlocks its `rate_ctrl` work queue: wheels never turn, `vehicle_angular_velocity`
   stalls, preflight fails with accelerometer timeouts.
+- #868: service replies get lost and the request waits forever although the replier acted on it —
+  13 of 40 `gz service` calls from the px4 container and 13 of 40 from the world's, against 0 of
+  80 with #977 (2026-10-20). Binaries built against the 15.1 headers get the fix too: their inline
+  `Node::Request` sends through `NodeShared::SendPendingRemoteReqs`, which #977 moves onto a zenoh
+  Querier; only the cleanup after a request's own timeout stays inline, so not theirs.
 
-- **Install:** `infra/build-gz-transport.sh` clones 15.1.0, applies the patch, builds it against
-  the dependency versions installed in `ENV_DIR` (default: this repo's pixi env) and swaps in the
-  library, keeping the conda one as `*.orig`. It refuses to run on any other gz-transport version.
+- **Install:** `infra/build-gz-transport.sh` fetches `REV`, builds it against the dependency
+  versions installed in `ENV_DIR` (default: this repo's pixi env) and swaps in the library, keeping
+  the conda one as `*.orig`. It refuses to run on any other gz-transport version.
   `world.Dockerfile` and `px4.Dockerfile` run the same script against their own conda env.
 - **Revert (macOS):** `infra/build-gz-transport.sh --revert`, or `pixi reinstall`.
-- The patch's blank context lines are whitespace-significant: pre-commit's whitespace hooks skip
-  `*.patch`, and an edited patch must pass `git apply --check` on a 15.1.0 checkout.
 - `pixi install`/`update` that touches gz-transport puts the conda library back; re-run the
   script if the GUI hangs again.
-- **To try another PR the same way:** clone the tag matching the installed version, `git fetch
-  origin pull/<N>/head` and cherry-pick it, and make sure it changes no public header or class
-  layout: only the library is swapped, the gz binaries and PX4 stay as built. The script checks
-  that no exported symbol goes missing.
+- **To try another PR the same way:** set `REV` to a commit of it based on the installed version
+  (`git fetch origin pull/<N>/head`) that changes no class layout: only the library is swapped,
+  the gz binaries and PX4 stay as built. The script checks that no exported symbol goes missing.
+  The images rebuild only the swap (the PX4 compile stays cached), about a minute.
 
-**Waiting on upstream:**
-- #966 and #965 released in a conda-forge gz-transport 15 → drop the patch, the script and the
-  build steps in both Dockerfiles.
-- #868 (Part 2/2) backported → service replies over zenoh stop getting lost. It changes public
-  headers and inline request code, so it cannot be patched in like the others. Until then a
-  request can wait forever: `px4.Dockerfile` wraps `gz` to bound `gz service` (PX4 spawns its
-  vehicle with one), and the macOS `gz service` CLI may hang although the world acted on it.
+**Waiting on upstream:** #977 open, CI and its ABI check green, review requested, none yet (as of
+2026-10-20).
+- #977 force-pushed again → move `REV` to its new head (`gh pr view 977 -R gazebosim/gz-transport
+  --json headRefOid`).
+- #977 released in a conda-forge gz-transport 15 → drop the script and the build steps in both
+  Dockerfiles; the spawn retries can go then through an OpenSpec change to `agent-spawn`, keeping
+  a settle step (above).
 
 **Other things the Jetty images work around:** the world needs Mesa from apt (the conda env has
 only the glvnd dispatcher, so Ogre segfaults when the rover's gpu_lidar spawns); PX4 needs OpenCV

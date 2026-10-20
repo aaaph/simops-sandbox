@@ -52,29 +52,15 @@ RUN . /opt/gz/activate.sh \
     -DCONFIG=px4_sitl_zenoh -DCMAKE_PREFIX_PATH=$CONDA_PREFIX \
     && cmake --build /px4/build/px4_sitl_zenoh
 
-# gz-transport 15.1.0 with the zenoh fixes not yet released for Jetty; see the
-# header of infra/patches/gz-transport15-zenoh-fixes.patch. Swapped in after the
-# PX4 build: the patch keeps the ABI, so a patch change does not rebuild PX4.
+# gz-transport 15.1.0 with the zenoh fixes not yet released for Jetty; see
+# infra/build-gz-transport.sh. Swapped in after the PX4 build: the build keeps
+# the ABI, so changing it does not rebuild PX4.
 COPY infra/build-gz-transport.sh /opt/sim/infra/
-COPY infra/patches /opt/sim/infra/patches
 RUN ENV_DIR=/opt/gz/.pixi/envs/default /opt/sim/infra/build-gz-transport.sh \
     && pixi clean cache --yes
 
 # GZ_PARTITION and the router endpoint come from compose, as for the world.
 ENV GZ_TRANSPORT_IMPLEMENTATION=zenoh
-
-# gz-transport 15.1.0 over zenoh can wait forever for a service reply that was
-# lost on the way back (fixed upstream in gz-transport#868, not in Jetty yet),
-# and PX4's startup script then blocks on `gz service -s .../create` although
-# the world has already spawned the model. Bound every `gz service` call; drop
-# this wrapper once a gz-transport 15 release carries #868.
-COPY --chmod=755 <<'EOF' /opt/sim/bin/gz
-#!/bin/sh
-if [ "$1" = service ]; then
-	exec timeout 15 /opt/gz/.pixi/envs/default/bin/gz "$@"
-fi
-exec /opt/gz/.pixi/envs/default/bin/gz "$@"
-EOF
 
 # PX4 joining a running world: it spawns its vehicle (PX4_SIM_MODEL, looked up
 # under PX4_GZ_MODELS by the world's gz server) and drives it over gz-transport.
@@ -82,7 +68,6 @@ COPY --chmod=755 <<'EOF' /usr/local/bin/sim-px4
 #!/bin/sh
 set -e
 . /opt/gz/activate.sh
-export PATH=/opt/sim/bin:$PATH  # the bounded gz wrapper above
 B=/px4/build/px4_sitl_zenoh
 
 # Docker Desktop: localhost stays in the VM, so point MAVLink at the host: the GCS link at QGC

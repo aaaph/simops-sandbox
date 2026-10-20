@@ -20,10 +20,9 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 ENV __EGL_VENDOR_LIBRARY_DIRS=/usr/share/glvnd/egl_vendor.d
 
-# gz-transport 15.1.0 with the zenoh fixes not yet released for Jetty; see the
-# header of infra/patches/gz-transport15-zenoh-fixes.patch.
+# gz-transport 15.1.0 with the zenoh fixes not yet released for Jetty; see
+# infra/build-gz-transport.sh.
 COPY infra/build-gz-transport.sh /opt/sim/infra/
-COPY infra/patches /opt/sim/infra/patches
 RUN ENV_DIR=/opt/gz/.pixi/envs/default /opt/sim/infra/build-gz-transport.sh \
     && pixi clean cache --yes
 
